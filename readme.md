@@ -17,6 +17,7 @@ No AIO mastercontainer, no 100-user limit - you own the scaling and the upgrades
 | [Quick start](#quick-start) | Bring the stack up on a fresh host |
 | [Configuration](#configuration) | `.env` and `config/` reference |
 | [Networking / TLS / domain](#networking--tls--domain) | Reverse proxy options, domain provider, Cloudflare caveats |
+| [Database](#database) | Standalone Postgres/Redis project + managed-cloud migration |
 | [Scaling](#scaling) | Horizontal app replicas + honest autoscaling notes |
 | [Backups](#backups) | DB + file backup / restore |
 | [Talk](#talk) | Signaling / TURN wiring (optional) |
@@ -27,8 +28,8 @@ No AIO mastercontainer, no 100-user limit - you own the scaling and the upgrades
 
 | Service | Image | Role |
 | --- | --- | --- |
-| `nextcloud-db` | `postgres:16-alpine` | Database (tuned `config/postgres-tuning.conf`) |
-| `nextcloud-redis` | `redis:alpine` | PHP sessions, distributed cache, file locking |
+| `nextcloud-db` | `postgres:16-alpine` | Database - standalone project (`compose.db.yaml`) |
+| `nextcloud-redis` | `redis:alpine` | PHP sessions, distributed cache, file locking - standalone project |
 | `nextcloud-app` | `nextcloud:stable` | Nextcloud Apache + PHP (scalable, no host ports) |
 | `nextcloud-cron` | `nextcloud:stable` | Background jobs via the official `/cron.sh` |
 | `talk` | `nextcloud/aio-talk:latest` | Optional Talk signaling + TURN (needs www + secrets) |
@@ -40,7 +41,7 @@ Everything connects over the external Docker network `nextcloud-network`:
 docker network create nextcloud-network   # one time, before first up
 ```
 
-Named volumes: `nextcloud_db` (Postgres), `nextcloud_www` (Nextcloud webroot + data), `caddy_data` / `caddy_config`.
+Named volumes: `nextcloud_db` (Postgres - owned by the database project), `nextcloud_www` (Nextcloud webroot + data), `caddy_data` / `caddy_config`. The stack is split into two Compose projects - see [Database](#database).
 
 ## Quick start
 
@@ -54,10 +55,13 @@ cp .env.example .env
 #    OVERWRITE*, NEXTCLOUD_TRUSTED_DOMAINS, TRUSTED_PROXIES, Talk secrets
 #    (TRUSTED_PROXIES must match `docker network inspect nextcloud-network` subnet)
 
-# 3. Start
+# 3. Start stateful services (PostgreSQL + Redis) - separate project
+docker compose -f compose.db.yaml up -d
+
+# 4. Start the app stack
 docker compose up -d
 
-# 4. Verify
+# 5. Verify
 docker compose ps
 docker compose logs -f nextcloud-app
 curl -fsS http://localhost/status.php
@@ -94,6 +98,19 @@ a 400-user rollout. See [NETWORKING.md](NETWORKING.md) for the full comparison:
 Recommended domain provider: **Cloudflare Registrar + DNS** (often DNS-only /
 grey cloud for large uploads). See NETWORKING.md for exact `.env` + `Caddyfile` +
 `compose.yaml` changes per option.
+
+## Database (standalone)
+
+PostgreSQL + Redis run in their own Compose project (`compose.db.yaml`) so the
+web tier scales freely without ever touching them:
+
+```bash
+docker compose -f compose.db.yaml up -d            # stateful services first
+docker compose up -d --scale nextcloud-app=2       # web tier scales separately
+```
+
+Startup order, backup commands and the migration path to a managed database:
+[DATABASE.md](DATABASE.md).
 
 ## Scaling
 
@@ -152,7 +169,7 @@ docker exec -u www-data nextcloud-app php occ maintenance:mode --off
 
 ## Monitoring
 
-- `docker compose ps` shows health status (db, redis, app all have healthchecks).
+- Health checks: `docker compose ps` (app tier) and `docker compose -f compose.db.yaml ps` (db + redis).
 - `http://<host>/status.php` returns the instance health.
 - Enable the **Serverinfo** app in Nextcloud and install the Nextcloud Serverinfo monitoring templates (Percona) or scrape `/ocs/v2.php/apps/serverinfo/api/v1/info` for load, memory and user counts.
 - Watch volume usage: `docker system df` and `df -h` on the volume backing directory.

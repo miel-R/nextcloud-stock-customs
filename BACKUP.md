@@ -16,7 +16,7 @@ docker exec nextcloud-db pg_dump -U nextcloud -d nextcloud -Fc \
   > /backup/nextcloud-db-$(date +%F).dump
 ```
 
-Goes through the same container as the app, so no extra client needed. `-Fc` (custom format) is compressed and restore-friendly. Keep a few days on disk plus an off-site copy (rclone/borg).
+Goes through the same container as the app, so no extra client needed (`docker exec nextcloud-db` works from anywhere because the container name is fixed). The database runs in the standalone project - the compose equivalent is `docker compose -f compose.db.yaml exec nextcloud-db pg_dump ...`. `-Fc` (custom format) is compressed and restore-friendly. Keep a few days on disk plus an off-site copy (rclone/borg).
 
 ### 2. Files (daily, consistent)
 
@@ -83,7 +83,8 @@ cat nextcloud-db-YYYY-MM-DD.dump | \
 docker run --rm -v nextcloud_www:/data -v "$(pwd)":/backup alpine \
   tar -xzf /backup/nextcloud-www-YYYY-MM-DD.tar.gz -C /data
 
-# 4. bring it back
+# 4. start the database project if it is not running, then bring the app back
+docker compose -f compose.db.yaml up -d
 docker compose up -d
 docker exec -u www-data nextcloud-app php occ maintenance:mode --off
 docker exec -u www-data nextcloud-app php occ files:scan --all

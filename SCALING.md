@@ -13,9 +13,15 @@ Goal: comfortably serve ~400 users and know exactly when and how to add capacity
 | File locking | Redis (`memcache.locking`) |
 | Local cache | APCu (`memcache.local`, built into the image) |
 | Webroot + data | shared named volume `nextcloud` (mounted read-write in app + cron) |
+| Database | single shared PostgreSQL, run in the standalone `compose.db.yaml` project (never scaled) |
 | Background jobs | the single `nextcloud-cron` container |
 
 So adding app replicas is safe: sessions and locks survive across every instance.
+
+The database is a **singleton** and lives in its own Compose project
+(`compose.db.yaml`). Replicas never get their own database, so scaling back down
+never needs to merge anything. Never run `--scale` on `nextcloud-db` or
+`nextcloud-redis` - stateful services must stay at exactly one copy each.
 
 ## Add replicas (single host, Docker Compose)
 
@@ -75,6 +81,6 @@ For a 400-user organization starting today, Option 1 is the pragmatic path. Revi
 | --- | --- |
 | Host RAM | >= 32 GB (64 GB if 2 app replicas + Talk) |
 | App | 8G limit / 60 workers per replica |
-| DB | 4G limit, `shared_buffers=1G`, `max_connections=150` |
-| Redis | 1G limit, `maxmemory 1gb` |
+| DB | 4G limit, `shared_buffers=1G`, `max_connections=150` (in `compose.db.yaml`) |
+| Redis | 1G limit, `maxmemory 1gb` (in `compose.db.yaml`) |
 | Data disk | SSD/NVMe, monitor with `df -h` and `docker system df` |

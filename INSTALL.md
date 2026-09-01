@@ -16,6 +16,8 @@ It assumes a Linux host (or Windows with Docker Desktop) with Docker Engine + Co
 
 Total: **32 GB RAM** and **4+ vCPU** is the comfortable starting point for 400 users on one host; go to 64 GB if you plan heavy Talk usage or 2 app replicas. Backups need extra disk (see [BACKUP.md](BACKUP.md)).
 
+PostgreSQL and Redis are deployed from the separate `compose.db.yaml` project (they must be reachable from the app containers over `nextcloud-network`); they still count towards the same host sizing.
+
 ## 1. Network (one-time)
 
 The compose file uses an *external* network named `nextcloud-network`:
@@ -68,6 +70,10 @@ tailscale funnel --bg http://127.0.0.1:80
 ## 4. Start
 
 ```bash
+# 1) stateful services first (separate project: db + redis)
+docker compose -f compose.db.yaml up -d
+
+# 2) then the app tier
 docker compose up -d
 docker compose ps
 ```
@@ -122,7 +128,8 @@ Set up the daily backup described in [BACKUP.md](BACKUP.md) **before** onboardin
 | Symptom | Likely cause / fix |
 | --- | --- |
 | `network nextcloud-network not found` | Run `docker network create nextcloud-network` |
-| 500 on first load | `docker compose logs nextcloud-app`; DB not ready yet or `POSTGRES_PASSWORD` empty |
+| 500 on first load | `docker compose logs nextcloud-app`; DB not started yet or `POSTGRES_PASSWORD` empty |
+| App can't reach `nextcloud-db` / DB errors at boot | Start the database project first: `docker compose -f compose.db.yaml up -d` |
 | "Trusted domain" error | Add the host to `NEXTCLOUD_TRUSTED_DOMAINS` and recreate the app container |
 | App container restarts / OOM | Lower `MaxRequestWorkers` in `config/apache-mpm.conf` or raise the memory limit |
 | Uploads stuck at 512 MB | Ensure the app runs with the `zz-custom.ini` mount (see compose) and `APACHE_BODY_LIMIT=10G` |

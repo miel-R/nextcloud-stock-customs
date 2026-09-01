@@ -3,13 +3,15 @@ name: nextcloud-stack
 # ============================================================================
 # Nextcloud stack sized for ~400 users
 # ----------------------------------------------------------------------------
-# Services:
-#   nextcloud-db      PostgreSQL 16
-#   nextcloud-redis   Redis (PHP sessions, distributed cache, file locking)
+# Services (stateless web tier):
 #   nextcloud-app     Nextcloud Apache + PHP (scalable: --scale)
 #   nextcloud-cron    Background jobs (official /cron.sh)
 #   talk              Nextcloud Talk signaling + TURN (optional)
 #   caddy             Reverse proxy (HTTP :80 here; TLS via Tailscale funnel)
+#
+# Stateful services (PostgreSQL + Redis) live in a SEPARATE project so the app
+# tier can scale up/down without ever touching or duplicating them:
+#     docker compose -f compose.db.yaml up -d        (see DATABASE.md)
 #
 # SCALING (see SCALING.md):
 #   nextcloud-app is stateless on purpose:
@@ -18,6 +20,7 @@ name: nextcloud-stack
 #     - file locking        -> Redis  (memcache.locking)
 #     - local cache         -> APCu   (built into the image)
 #     - webroot             -> shared named volume `nextcloud`
+#     - database            -> single shared PostgreSQL (compose.db.yaml)
 #   To run more than one app instance with Compose on one host:
 #     docker compose up -d --scale nextcloud-app=3
 #   Docker's embedded DNS round-robins the `nextcloud-app` name across the
@@ -29,64 +32,7 @@ name: nextcloud-stack
 
 services:
   # ------------------------------------------------------------
-  # 1. POSTGRESQL DATABASE
-  # ------------------------------------------------------------
-  nextcloud-db:
-    image: postgres:16-alpine
-    container_name: nextcloud-db
-    restart: unless-stopped
-    volumes:
-      - db:/var/lib/postgresql/data
-      - ./config/postgres-tuning.conf:/etc/postgresql/postgresql.conf:ro
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-nextcloud}
-      POSTGRES_USER: ${POSTGRES_USER:-nextcloud}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
-    command: postgres -c config_file=/etc/postgresql/postgresql.conf
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nextcloud} -d ${POSTGRES_DB:-nextcloud}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - nextcloud-network
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-          cpus: '2'
-        reservations:
-          memory: 2G
-          cpus: '1'
-
-  # ------------------------------------------------------------
-  # 2. REDIS CACHE (sessions + distributed cache + file locking)
-  # ------------------------------------------------------------
-  nextcloud-redis:
-    image: redis:alpine
-    container_name: nextcloud-redis
-    restart: unless-stopped
-    # allkeys-lru: evict least-recently-used keys instead of failing when full.
-    # 1g fits sessions + cache + locks for ~400 users; keep below the 1G limit.
-    command: redis-server --maxmemory 1gb --maxmemory-policy allkeys-lru --save "" --appendonly no
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - nextcloud-network
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "1"
-        reservations:
-          memory: 512M
-          cpus: "0.5"
-# ------------------------------------------------------------
-  # 3. MAIN NEXTCLOUD APP (scalable, no host ports)
+  # 1. MAIN NEXTCLOUD APP (scalable, no host ports)
   # ------------------------------------------------------------
   nextcloud-app:
     image: nextcloud:stable
@@ -116,11 +62,6 @@ services:
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       # Apache request body limit - must be >= upload_max_filesize in zz-custom.ini
       APACHE_BODY_LIMIT: 10G
-    depends_on:
-      nextcloud-db:
-        condition: service_healthy
-      nextcloud-redis:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1/status.php') ? 0 : 1);"]
       interval: 30s
@@ -140,7 +81,7 @@ services:
           cpus: "1"
 
   # ------------------------------------------------------------
-  # 4. DEDICATED CRON CONTAINER (official /cron.sh -> busybox crond -f)
+  # 2. DEDICATED CRON CONTAINER (official /cron.sh -> busybox crond -f)
   # ------------------------------------------------------------
   nextcloud-cron:
     image: nextcloud:stable
@@ -149,11 +90,6 @@ services:
     entrypoint: /cron.sh
     volumes:
       - nextcloud:/var/www/html
-    depends_on:
-      nextcloud-db:
-        condition: service_healthy
-      nextcloud-redis:
-        condition: service_healthy
     networks:
       - nextcloud-network
     deploy:
@@ -166,7 +102,7 @@ services:
           cpus: "0.5"
 
   # ------------------------------------------------------------
-  # 5. NEXTCLOUD TALK (Signaling & TURN) - optional; see INSTALL.md
+  # 3. NEXTCLOUD TALK (Signaling & TURN) - optional; see INSTALL.md
   # ------------------------------------------------------------
   talk:
     image: nextcloud/aio-talk:latest
@@ -198,7 +134,7 @@ services:
           cpus: "0.5"
 
   # ------------------------------------------------------------
-  # 6. CADDY REVERSE PROXY (HTTP :80 only)
+  # 4. CADDY REVERSE PROXY (HTTP :80 only)
   # ------------------------------------------------------------
   caddy:
     image: caddy:alpine
@@ -230,8 +166,6 @@ networks:
     name: nextcloud-network
 
 volumes:
-  db:
-    name: nextcloud_db
   nextcloud:
     name: nextcloud_www
   caddy_data:
