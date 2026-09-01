@@ -19,4 +19,4 @@ docker compose up -d
 
 Bot: `http://ami-talk-bot:3979/api/talk/webhook` on `nextcloud-net` (`TALK_SERVER_URL=http://nextcloud:80` or your public https).
 
-See [ami-nextcloud-talk DEPLOYMENT.md](https://github.com/miel-R/ami-nextcloud-talk/blob/main/DEPLOYMENT.md) for bot setup.
+See [ami-nextcloud-talk](https://github.com/miel-R/ami-nextcloud-talk) — [DEPLOYMENT.md](https://github.com/miel-R/ami-nextcloud-talk/blob/main/DEPLOYMENT.md) for bot setup.
