@@ -9,6 +9,8 @@ Stock Nextcloud (`nextcloud:stable` + `postgres:16` + `redis` + `caddy`) — **n
 
 This repo is the former `nextcloud-aio-customs` converted to stock. Use `compose.yaml` (`nextcloud-aio` network) with [`ami-nextcloud-talk`](https://github.com/miel-R/ami-nextcloud-talk) bot.
 
+> **Detailed deployment:** [`INSTALL.md`](INSTALL.md) — domain options (no domain → funnel, has domain + CGNAT), `compose.yaml` reference, and Talk/AMI setup. For the bot itself see [`ami-nextcloud-talk` `README`](https://github.com/miel-R/ami-nextcloud-talk#readme) and [`DEPLOYMENT.md`](https://github.com/miel-R/ami-nextcloud-talk/blob/main/DEPLOYMENT.md).
+
 ## Contents
 
 | Topic | Why |
