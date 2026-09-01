@@ -16,6 +16,7 @@ No AIO mastercontainer, no 100-user limit - you own the scaling and the upgrades
 | [Stack](#stack) | What runs and why |
 | [Quick start](#quick-start) | Bring the stack up on a fresh host |
 | [Configuration](#configuration) | `.env` and `config/` reference |
+| [Networking / TLS / domain](#networking--tls--domain) | Reverse proxy options, domain provider, Cloudflare caveats |
 | [Scaling](#scaling) | Horizontal app replicas + honest autoscaling notes |
 | [Backups](#backups) | DB + file backup / restore |
 | [Talk](#talk) | Signaling / TURN wiring (optional) |
@@ -77,6 +78,22 @@ Talk secrets: `openssl rand -base64 32`.
 | `Caddyfile` | Route to app + Talk signaling (`:80`, gzip, static caching) |
 
 > The image's `TRUSTED_PROXIES` handling expects a **space-separated** list and `trusted_domains` also accepts spaces - keep that format in `.env`.
+
+## Networking / TLS / domain
+
+How you expose the stack and which domain provider to use is a key decision for
+a 400-user rollout. See [NETWORKING.md](NETWORKING.md) for the full comparison:
+
+| Option | Best when |
+| --- | --- |
+| Caddy :443 + Let's Encrypt | public IP / port-forward available - standard, best uploads |
+| Caddy :80 + Tailscale Funnel (current) | CGNAT / no open ports |
+| Cloudflare Tunnel -> Caddy | zero open ports + WAF (verify 100MB upload cap) |
+| No proxy (Tailscale Serve/Funnel) | private tailnet, or public with no caching needed |
+
+Recommended domain provider: **Cloudflare Registrar + DNS** (often DNS-only /
+grey cloud for large uploads). See NETWORKING.md for exact `.env` + `Caddyfile` +
+`compose.yaml` changes per option.
 
 ## Scaling
 
