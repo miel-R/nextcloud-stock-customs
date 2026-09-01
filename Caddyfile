@@ -1,0 +1,19 @@
+http://{$NC_DOMAIN}:8080 {
+    root * /nextcloud
+    encode
+
+    # Nextcloud
+    route {
+        reverse_proxy 127.0.0.1:8080
+    }
+
+    # Talk standalone signaling
+    route /standalone-signaling/* {
+        reverse_proxy 127.0.0.1:3478
+    }
+
+    # AMI bot WebSocket support
+    route /ami {
+        websocket
+    }
+}

@@ -1,0 +1,112 @@
+name: nextcloud-stock
+services:
+  db:
+    image: postgres:15
+    restart: always
+    env_file:
+      - .env.db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - nextcloud-net
+
+  nextcloud:
+    image: nextcloud:latest
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      - MYSQL_HOST=db
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=nextcloud
+      - POSTGRES_USER=nextcloud
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-nextcloudpass}
+      - NEXTCLOUD_TRUSTED_DOMAINS=localhost,127.0.0.1,${NC_DOMAIN:-nextcloud.local}
+      - NEXTCLOUD_ADMIN_USER=${NC_ADMIN_USER:-admin}
+      - NEXTCLOUD_ADMIN_PASSWORD=${NC_ADMIN_PASSWORD:-admin}
+      - NEXTCLOUD_OVERWRITE_HOST=${NC_OVERWRITE_HOST:-nextcloud.local}
+      - NEXTCLOUD_DB_TYPE=postgres
+      - NEXTCLOUD_DB_NAME=nextcloud
+      - NEXTCLOUD_DB_USER=nextcloud
+      - NEXTCLOUD_DB_PASSWORD=${POSTGRES_PASSWORD:-nextcloudpass}
+      - NEXTCLOUD_DB_HOST=db
+    volumes:
+      - nextcloud_data:/var/www/html
+      - nextcloud_config:/var/www/html/config
+      - nextcloud_apps:/var/www/html/custom_apps
+    networks:
+      - nextcloud-net
+
+  caddy:
+    image: caddy:alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_config:/config
+      - caddy_data:/data
+      - caddy_sites:/srv
+      - nextcloud_data:/nextcloud:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      - CADDY_DNS_PROVIDER=external
+      - CADDY_AGREE=TOS
+      - NEXTCLOUD_DOMAIN=${NC_DOMAIN:-nextcloud.local}
+      - NEXTCLOUD_CLIENT_PORT=443
+      - TALK_HOST=${NC_DOMAIN:-nextcloud.local}
+    networks:
+      - nextcloud-net
+
+talk:
+    image: nextcloud/talk:latest
+    restart: always
+    depends_on:
+      - nextcloud
+    environment:
+      - NEXTCLOUD_TRUSTED_DOMAINS=localhost,127.0.0.1,${NC_DOMAIN:-nextcloud.local}
+      - NEXTCLOUD_ADMIN_USER=${NC_ADMIN_USER:-admin}
+      - NEXTCLOUD_ADMIN_PASSWORD=${NC_ADMIN_PASSWORD:-admin}
+    volumes:
+      - nextcloud_data:/var/www/html:rw
+    networks:
+      - nextcloud-net
+
+  talk-recording:
+    image: nextcloud/talk-recording:latest
+    restart: always
+    depends_on:
+      - talk
+    environment:
+      - NEXTCLOUD_TRUSTED_DOMAINS=localhost,127.0.0.1,${NC_DOMAIN:-nextcloud.local}
+    volumes:
+      - nextcloud_data:/var/www/html:rw
+    networks:
+      - nextcloud-net
+
+  ami-bot:
+    image: nextcloud/ami-bot:latest
+    restart: always
+    depends_on:
+      - talk
+    environment:
+      - NEXTCLOUD_TRUSTED_DOMAINS=localhost,127.0.0.1,${NC_DOMAIN:-nextcloud.local}
+      - NEXTCLOUD_ADMIN_USER=${NC_ADMIN_USER:-admin}
+      - NEXTCLOUD_ADMIN_PASSWORD=${NC_ADMIN_PASSWORD:-admin}
+    volumes:
+      - nextcloud_data:/var/www/html:rw
+    networks:
+      - nextcloud-net
+
+networks:
+  nextcloud-net:
+
+volumes:
+  postgres_data:
+  nextcloud_data:
+  nextcloud_config:
+  nextcloud_apps:
+  caddy_config:
+  caddy_data:
+  caddy_sites:
