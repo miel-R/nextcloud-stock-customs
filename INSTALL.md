@@ -18,7 +18,50 @@ This repository contains a stock Nextcloud Docker setup with Caddy reverse proxy
 - Ports 80, 443 available on host
 - DNS domain pointing to server IP (e.g., nextcloud.local)
 
-### 2. Configure Environment
+### 2. Domain — pick one
+
+**A) No domain, no public IP (behind NAT/CGNAT) → Tailscale Funnel with `*.ts.net` (no open ports)**
+
+```bash
+# .env.db
+NC_DOMAIN=ck1189.tail650e17.ts.net   # your Tailscale funnel host
+```
+```powershell
+tailscale funnel --bg http://127.0.0.1:80
+# → https://ck1189.tail650e17.ts.net  (Funnel on, Tailscale issues the cert)
+```
+Then allow the host in Nextcloud:
+```bash
+docker exec -u www-data nextcloud-aio-nextcloud php occ config:system:set trusted_domains 5 --value=ck1189.tail650e17.ts.net
+docker exec -u www-data nextcloud-aio-nextcloud php occ config:system:set overwritehost --value=ck1189.tail650e17.ts.net
+docker exec -u www-data nextcloud-aio-nextcloud php occ config:system:set overwrite.cli.url --value=https://ck1189.tail650e17.ts.net
+```
+
+**B) Has domain + public IP with ports 80/443 open → direct Caddy + Let's Encrypt**
+
+```bash
+# .env.db
+NC_DOMAIN=nextcloud.example.com
+```
+Point DNS `A nextcloud.example.com → <your public IP>`, open 80/443. Caddy obtains the Let's Encrypt cert automatically — no funnel.
+
+**C) Has domain but behind CGNAT (no public IP, can't open ports) → funnel your domain**
+
+You own `nextcloud.example.com` but your ISP is CGNAT, so 80/443 never reach you. Funnel the domain:
+
+- **Tailscale Funnel with custom domain** (if the domain is on Cloudflare or you can add a `CNAME` to your `*.ts.net`):
+  ```powershell
+  tailscale funnel --bg --https=443 http://127.0.0.1:80
+  # in Tailscale admin → DNS → add CNAME nextcloud.example.com → ck1189.tail650e17.ts.net
+  ```
+- **Cloudflare Tunnel** (works with any domain, no public IP):
+  ```bash
+  cloudflared tunnel --url http://127.0.0.1:80
+  # → https://<random>.trycloudflare.com  (or your domain via dashboard → Public Hostname → http://nextcloud-aio-nextcloud:80)
+  ```
+In both cases set `NC_DOMAIN` to your public domain and add it to `trusted_domains`/`overwritehost` as in A).
+
+### 3. Configure Environment
 
 Create `.env.db` in the repository root:
 
@@ -29,20 +72,20 @@ NC_ADMIN_PASSWORD=admin
 NC_DOMAIN=nextcloud.local
 ```
 
-### 3. Start the Stack
+### 4. Start the Stack
 
 ```bash
 docker compose up -d
 ```
 
-### 4. Access Nextcloud
+### 5. Access Nextcloud
 
 - HTTP: http://localhost:8080
 - HTTPS: https://nextcloud.local (via Caddy)
 
 Default login: admin / admin (change immediately!)
 
-### 5. Enable Talk and AMI Bot
+### 6. Enable Talk and AMI Bot
 
 Access Nextcloud as admin and:
 
@@ -59,7 +102,7 @@ docker compose exec nextcloud occ app:enable talk_recording
 docker compose exec nextcloud occ app:enable ami_bot
 ```
 
-### 6. Configure TURN Servers (for Talk)
+### 7. Configure TURN Servers (for Talk)
 
 The Talk container is configured with Google's STUN server. For production, add TURN servers:
 
@@ -69,7 +112,7 @@ docker compose exec nextcloud occ config:system:set talk_turn_udp_enabled --valu
 docker compose exec nextcloud occ config:system:set talk_turn_stun_servers --value='["stun.l.google.com:19302","stun1.l.google.com:19302"]' --type=string
 ```
 
-### 7. Caddy Configuration
+### 8. Caddy Configuration
 
 The included Caddyfile handles HTTPS. For custom domains:
 
@@ -77,7 +120,7 @@ The included Caddyfile handles HTTPS. For custom domains:
 2. Ensure DNS A record points to your server IP
 3. Caddy will automatically obtain Let's Encrypt certificates
 
-### 8. Stop/Restart
+### 9. Stop/Restart
 
 ```bash
 docker compose down    # Stop and remove
