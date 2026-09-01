@@ -1,9 +1,45 @@
+# Caddy config for the Nextcloud stack
+#
+# - HTTP only (:80). TLS is terminated upstream (Tailscale Funnel / external
+#   reverse proxy), so Nextcloud is told the public scheme via the
+#   OVERWRITEPROTOCOL / OVERWRITECLIURL env vars in .env.
+# - reverse_proxy targets the `nextcloud-app` service name. When the app is
+#   scaled with `docker compose up -d --scale nextcloud-app=N`, Docker's
+#   embedded DNS round-robins that name across all replicas, so Caddy
+#   load-balances automatically - no changes needed here.
+# - The Talk signaling server inside nextcloud/aio-talk listens on 8081, which
+#   is why /standalone-signaling is proxied to nextcloud-talk:8081 (NOT 8080).
+
 {
     admin off
 }
+
 :80 {
-    reverse_proxy nextcloud-aio-nextcloud:80
-}
-:443 {
-    reverse_proxy nextcloud-aio-nextcloud:80
+    # Compression
+    encode gzip
+
+    # Static asset caching (built-in matchers only - `path_reg` is a third-party
+    # plugin that is NOT in the stock caddy:alpine image)
+    @static_assets {
+        file
+        path *.css *.js *.svg *.gif *.png *.jpg *.jpeg *.ico *.woff2 *.ttf
+    }
+    header @static_assets Cache-Control "public, max-age=2592000, immutable"
+    header @static_assets X-Content-Type-Options "nosniff"
+
+    # Talk signaling server
+    handle_path /standalone-signaling/* {
+        reverse_proxy nextcloud-talk:8081
+    }
+
+    # Everything else -> Nextcloud (load-balanced across app replicas)
+    handle {
+        reverse_proxy nextcloud-app:80 {
+            # Forward timeouts for long-running Nextcloud operations
+            transport http {
+                read_buffer 0
+                response_header_timeout 1h
+            }
+        }
+    }
 }

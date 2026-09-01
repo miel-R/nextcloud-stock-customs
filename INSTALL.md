@@ -1,154 +1,129 @@
-# Nextcloud Stock Docker with Talk and AMI Bot
+# Installation guide
 
-This repository contains a stock Nextcloud Docker setup with Caddy reverse proxy, including support for Nextcloud Talk and AMI bot.
+This guide covers deploying the `compose.yaml` stack from scratch on a single Docker host.
+It assumes a Linux host (or Windows with Docker Desktop) with Docker Engine + Compose v2 and, optionally, Tailscale for the Funnel setup.
 
-## Overview
+## 0. Sizing the host (~400 users)
 
-- **Nextcloud**: Latest official image (no 100-user limit)
-- **Caddy**: Reverse proxy with automatic TLS/Let's Encrypt
-- **Talk**: Video/audio calling support
-- **Talk Recording**: Call recording functionality
-- **AMI Bot**: Audio Media Interface bot for calls
+| Component | RAM reserved | Notes |
+| --- | --- | --- |
+| nextcloud-db | 2-4 GB | `shared_buffers=1G`, `max_connections=150` |
+| nextcloud-redis | 0.5-1 GB | sessions, cache, file locking |
+| nextcloud-app | 2-8 GB per replica | `MaxRequestWorkers=60` needs ~8G per replica |
+| nextcloud-cron | 1-2 GB | background jobs |
+| caddy | 0.25-0.5 GB | static + reverse proxy |
+| OS + Docker + headroom | 4-8 GB | journal, images, page cache |
 
-## Quick Start
+Total: **32 GB RAM** and **4+ vCPU** is the comfortable starting point for 400 users on one host; go to 64 GB if you plan heavy Talk usage or 2 app replicas. Backups need extra disk (see [BACKUP.md](BACKUP.md)).
 
-### 1. Prerequisites
+## 1. Network (one-time)
 
-- Docker and Docker Compose installed
-- Ports 80, 443 available on host
-- DNS domain pointing to server IP (e.g., nextcloud.local)
-
-### 2. Domain — pick one
-
-**A) No domain, no public IP (behind NAT/CGNAT) → Tailscale Funnel with `*.ts.net` (no open ports)**
+The compose file uses an *external* network named `nextcloud-network`:
 
 ```bash
-# .env.db
-NC_DOMAIN=ck1189.tail650e17.ts.net   # your Tailscale funnel host
+docker network create nextcloud-network
 ```
-```powershell
+
+If it does not exist, `docker compose up` will fail with "network nextcloud-network not found".
+
+## 2. Environment file
+
+```bash
+cp .env.example .env
+```
+
+Fill in at minimum:
+
+```bash
+POSTGRES_PASSWORD=<long random>          # openssl rand -base64 24
+NEXTCLOUD_ADMIN_PASSWORD=<long random>
+NC_DOMAIN=nextcloud.example.com          # no scheme, no port
+OVERWRITECLIURL=https://nextcloud.example.com
+OVERWRITEPROTOCOL=https
+NEXTCLOUD_TRUSTED_DOMAINS=localhost 127.0.0.1 nextcloud nextcloud.example.com
+TRUSTED_PROXIES=<subnet of the docker network>   # docker network inspect nextcloud-network
+```
+
+If you use a **Tailscale Funnel** for a `.ts.net` domain and no real certificate, use:
+
+```bash
+OVERWRITECLIURL=https://<your>.ts.net
+OVERWRITEPROTOCOL=https
+```
+
+`.env` is gitignored. Never commit it. Secrets are only read on first boot (install), so changing them later requires occ or a fresh install.
+
+## 3. DNS / TLS (pick one)
+
+**A) Tailscale Funnel (no public IP / CGNAT)** - Tailscale terminates TLS, forwards HTTP to Caddy on `:80`:
+
+```bash
 tailscale funnel --bg http://127.0.0.1:80
-# → https://ck1189.tail650e17.ts.net  (Funnel on, Tailscale issues the cert)
-```
-Then allow the host in Nextcloud:
-```bash
-docker exec -u www-data nextcloud-aio-nextcloud php occ config:system:set trusted_domains 5 --value=ck1189.tail650e17.ts.net
-docker exec -u www-data nextcloud-aio-nextcloud php occ config:system:set overwritehost --value=ck1189.tail650e17.ts.net
-docker exec -u www-data nextcloud-aio-nextcloud php occ config:system:set overwrite.cli.url --value=https://ck1189.tail650e17.ts.net
 ```
 
-**B) Has domain + public IP with ports 80/443 open → direct Caddy + Let's Encrypt**
+**B) Direct Caddy + Let's Encrypt** - add `:443` handling to the Caddyfile and map `NC_DOMAIN` DNS A record to the host, open 80/443.
 
-```bash
-# .env.db
-NC_DOMAIN=nextcloud.example.com
-```
-Point DNS `A nextcloud.example.com → <your public IP>`, open 80/443. Caddy obtains the Let's Encrypt cert automatically — no funnel.
+**C) Cloudflare Tunnel** - `cloudflared tunnel --url http://127.0.0.1:80`, set the public hostname to the Nextcloud host.
 
-**C) Has domain but behind CGNAT (no public IP, can't open ports) → funnel your domain**
-
-You own `nextcloud.example.com` but your ISP is CGNAT, so 80/443 never reach you. Funnel the domain:
-
-- **Tailscale Funnel with custom domain** (if the domain is on Cloudflare or you can add a `CNAME` to your `*.ts.net`):
-  ```powershell
-  tailscale funnel --bg --https=443 http://127.0.0.1:80
-  # in Tailscale admin → DNS → add CNAME nextcloud.example.com → ck1189.tail650e17.ts.net
-  ```
-- **Cloudflare Tunnel** (works with any domain, no public IP):
-  ```bash
-  cloudflared tunnel --url http://127.0.0.1:80
-  # → https://<random>.trycloudflare.com  (or your domain via dashboard → Public Hostname → http://nextcloud-aio-nextcloud:80)
-  ```
-In both cases set `NC_DOMAIN` to your public domain and add it to `trusted_domains`/`overwritehost` as in A).
-
-### 3. Configure Environment
-
-Create `.env.db` in the repository root:
-
-```
-POSTGRES_PASSWORD=nextcloudpass
-NC_ADMIN_USER=admin
-NC_ADMIN_PASSWORD=admin
-NC_DOMAIN=nextcloud.local
-```
-
-### 4. Start the Stack
+## 4. Start
 
 ```bash
 docker compose up -d
+docker compose ps
 ```
 
-### 5. Access Nextcloud
-
-- HTTP: http://localhost:8080
-- HTTPS: https://nextcloud.local (via Caddy)
-
-Default login: admin / admin (change immediately!)
-
-### 6. Enable Talk and AMI Bot
-
-Access Nextcloud as admin and:
-
-1. Go to **Settings** → **Apps**
-2. Enable **Talk** app
-3. Enable **Talk Recording** app (optional)
-4. Enable **AMI Bot** app
-
-Or via occ:
+The app container runs the image entrypoint which installs Nextcloud on first boot (admin + database) using the `.env` values. Give it 1-3 minutes; watch with:
 
 ```bash
-docker compose exec nextcloud occ app:enable talk
-docker compose exec nextcloud occ app:enable talk_recording
-docker compose exec nextcloud occ app:enable ami_bot
+docker compose logs -f nextcloud-app
 ```
 
-### 7. Configure TURN Servers (for Talk)
-
-The Talk container is configured with Google's STUN server. For production, add TURN servers:
+Verify:
 
 ```bash
-docker compose exec nextcloud occ config:system:set talk_turn_tcp_enabled --value=true --type=bool
-docker compose exec nextcloud occ config:system:set talk_turn_udp_enabled --value=true --type=bool
-docker compose exec nextcloud occ config:system:set talk_turn_stun_servers --value='["stun.l.google.com:19302","stun1.l.google.com:19302"]' --type=string
+curl -fsS http://localhost/status.php   # {"installed":true,...}
 ```
 
-### 8. Caddy Configuration
+## 5. First login
 
-The included Caddyfile handles HTTPS. For custom domains:
+- URL: `https://<NC_DOMAIN>` (or `http://<host>` locally)
+- User / password: `NEXTCLOUD_ADMIN_USER` / `NEXTCLOUD_ADMIN_PASSWORD`
 
-1. Update `NC_DOMAIN` in `.env.db`
-2. Ensure DNS A record points to your server IP
-3. Caddy will automatically obtain Let's Encrypt certificates
+Change/verify from the admin settings: trusted domains (`Settings > Security` or `occ config:system:set trusted_domains ...`), mail, reverse-proxy settings. The image sets `overwritehost`, `overwriteprotocol` and `overwrite.cli.url` from env, so careful manual `occ` changes are usually not required.
 
-### 9. Stop/Restart
+## 6. Verify background jobs
+
+Cron runs in the dedicated `nextcloud-cron` container (official `/cron.sh`):
 
 ```bash
-docker compose down    # Stop and remove
-docker compose up -d   # Start again
+docker compose logs -f nextcloud-cron
 ```
 
-## Directory Structure
+In Nextcloud admin: `Basic settings > Background jobs` should show **Cron** as last job run "now".
 
-```
-Containers/
-  talk/           - Talk container (Dockerfile + start.sh)
-  talk-recording/ - Talk Recording container
-  ami-bot/        - AMI Bot container
-Caddyfile         - Caddy reverse proxy config
-compose.yaml      - Docker Compose configuration
+## 7. Optional: extra app replica
+
+```bash
+docker compose up -d --scale nextcloud-app=2
 ```
 
-## Ports
+See [SCALING.md](SCALING.md) for the full story.
 
-| Port | Purpose |
-|------|---------|
-| 80/443 | Caddy HTTP/HTTPS |
-| 8080 | Nextcloud internal (routed via Caddy) |
-| 3478 | TURN (TCP/UDP) for Talk |
+## 8. Optional: Talk
 
-## Notes
+Follow the Talk section of the [README](readme.md). It needs the signaling backend reachable over `https://<NC_DOMAIN>` and UDP/TCP 3478 open.
 
-- No 100-user limit like AIO - you control Nextcloud capacity
-- Stock Nextcloud image - no AIO-specific constraints
-- Caddy handles automatic SSL certificate generation
-- All data stored in named Docker volumes
+## 9. Backups
+
+Set up the daily backup described in [BACKUP.md](BACKUP.md) **before** onboarding users.
+
+## 10. Troubleshooting
+
+| Symptom | Likely cause / fix |
+| --- | --- |
+| `network nextcloud-network not found` | Run `docker network create nextcloud-network` |
+| 500 on first load | `docker compose logs nextcloud-app`; DB not ready yet or `POSTGRES_PASSWORD` empty |
+| "Trusted domain" error | Add the host to `NEXTCLOUD_TRUSTED_DOMAINS` and recreate the app container |
+| App container restarts / OOM | Lower `MaxRequestWorkers` in `config/apache-mpm.conf` or raise the memory limit |
+| Uploads stuck at 512 MB | Ensure the app runs with the `zz-custom.ini` mount (see compose) and `APACHE_BODY_LIMIT=10G` |
+| Sessions lost on scaling | Confirm `REDIS_HOST` is set on the app (image writes PHP session handler to Redis) |

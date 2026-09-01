@@ -5,121 +5,143 @@
 
 # nextcloud-stock-customs
 
-Stock Nextcloud (`nextcloud:stable` + `postgres:16` + `redis` + `caddy`) — **no AIO, no 100-user limit**. Same `nextcloud-aio-*` naming for compatibility.
+A stock Nextcloud Docker stack sized for ~400 users: `nextcloud:stable` (Apache + PHP) behind a Caddy reverse proxy, with PostgreSQL 16, Redis (sessions/cache/locking), a dedicated cron container and optional Nextcloud Talk.
 
-This repo is the former `nextcloud-aio-customs` converted to stock. Use `compose.yaml` (`nextcloud-aio` network) with [`ami-nextcloud-talk`](https://github.com/miel-R/ami-nextcloud-talk) bot.
-
-> **Detailed deployment:** [`INSTALL.md`](INSTALL.md) — domain options (no domain → funnel, has domain + CGNAT), `compose.yaml` reference, and Talk/AMI setup. For the bot itself see [`ami-nextcloud-talk` `README`](https://github.com/miel-R/ami-nextcloud-talk#readme) and [`DEPLOYMENT.md`](https://github.com/miel-R/ami-nextcloud-talk/blob/main/DEPLOYMENT.md).
+No AIO mastercontainer, no 100-user limit - you own the scaling and the upgrades.
 
 ## Contents
 
 | Topic | Why |
-|---|---|
-| [Stack](#stack) | What runs |
-| [Quick start](#quick-start) | Bring up stock Nextcloud |
-| [Caddy (separate Apache)](#caddy-separate-apache) | Like AIO's split `apache` + `app` |
-| [Tailscale Funnel](#tailscale-funnel) | Public `https://ck1189.tail650e17.ts.net` for desktop/mobile (no open ports) |
-| [Ami bot](#ami-bot) | Webhook `http://ami-talk-bot:3979/api/talk/webhook` on `nextcloud-aio` |
-| [Changing domain](#changing-domain) | What to change when you move domains |
-| [Bot operations](#bot-operations) | Approve rooms, escalation sink |
+| --- | --- |
+| [Stack](#stack) | What runs and why |
+| [Quick start](#quick-start) | Bring the stack up on a fresh host |
+| [Configuration](#configuration) | `.env` and `config/` reference |
+| [Scaling](#scaling) | Horizontal app replicas + honest autoscaling notes |
+| [Backups](#backups) | DB + file backup / restore |
+| [Talk](#talk) | Signaling / TURN wiring (optional) |
+| [Upgrading](#upgrading) | Nextcloud + image updates |
+| [Monitoring](#monitoring) | Keep an eye on 400 users |
 
 ## Stack
 
-- `nextcloud-aio-database` (`postgres:16-alpine`)
-- `nextcloud-aio-redis` (`redis:alpine`)
-- `nextcloud-aio-nextcloud` (`nextcloud:stable` — Apache+PHP bundled, but run as separate `fpm`+`caddy` for AIO-like split)
-- `caddy` (`caddy:alpine` → `nextcloud-aio-nextcloud:80`, `80:80` + `443:443`)
+| Service | Image | Role |
+| --- | --- | --- |
+| `nextcloud-db` | `postgres:16-alpine` | Database (tuned `config/postgres-tuning.conf`) |
+| `nextcloud-redis` | `redis:alpine` | PHP sessions, distributed cache, file locking |
+| `nextcloud-app` | `nextcloud:stable` | Nextcloud Apache + PHP (scalable, no host ports) |
+| `nextcloud-cron` | `nextcloud:stable` | Background jobs via the official `/cron.sh` |
+| `talk` | `nextcloud/aio-talk:latest` | Optional Talk signaling + TURN (needs www + secrets) |
+| `caddy` | `caddy:alpine` | Reverse proxy on `:80` (TLS terminated upstream) |
 
-All on `nextcloud-aio` (`external: true`, `name: nextcloud-aio`). Volumes `db` + `nextcloud` + `caddy_*`.
+Everything connects over the external Docker network `nextcloud-network`:
+
+```bash
+docker network create nextcloud-network   # one time, before first up
+```
+
+Named volumes: `nextcloud_db` (Postgres), `nextcloud_www` (Nextcloud webroot + data), `caddy_data` / `caddy_config`.
 
 ## Quick start
 
 ```bash
-cp .env.example .env   # set POSTGRES_PASSWORD, NEXTCLOUD_ADMIN_*, NC_DOMAIN
-# .env example:
-# POSTGRES_PASSWORD=...
-# NEXTCLOUD_ADMIN_USER=admin
-# NEXTCLOUD_ADMIN_PASSWORD=...
-# NEXTCLOUD_TRUSTED_DOMAINS=localhost 127.0.0.1 nextcloud ck1189.tail650e17.ts.net
-# OVERWRITECLIURL=https://ck1189.tail650e17.ts.net
-# NC_DOMAIN=ck1189.tail650e17.ts.net
+# 1. External network (one-time)
+docker network create nextcloud-network
+
+# 2. Environment
+cp .env.example .env
+#    edit .env: POSTGRES_PASSWORD, NEXTCLOUD_ADMIN_PASSWORD, NC_DOMAIN,
+#    OVERWRITE*, NEXTCLOUD_TRUSTED_DOMAINS, TRUSTED_PROXIES, Talk secrets
+#    (TRUSTED_PROXIES must match `docker network inspect nextcloud-network` subnet)
+
+# 3. Start
 docker compose up -d
-# http://localhost:8080 (caddy also on :80/:443)
-# logs: docker logs nextcloud-aio-nextcloud --tail 20
+
+# 4. Verify
+docker compose ps
+docker compose logs -f nextcloud-app
+curl -fsS http://localhost/status.php
 ```
 
-First run creates admin and DB. `caddy` is optional — you can also hit `nextcloud-aio-nextcloud:80` directly via Tailscale.
+First boot creates the admin account and the database automatically. Log in at `http://<host>` (or your public `NC_DOMAIN`).
 
-## Caddy (separate Apache)
+Talk secrets: `openssl rand -base64 32`.
 
-Like AIO's `nextcloud-aio-apache` + `nextcloud-aio-nextcloud` split:
+## Configuration
 
-- Stock `nextcloud:stable` bundles Apache, but we run `caddy` in front for TLS termination and to keep the web layer separate (mirrors AIO).
-- `Caddyfile` → `reverse_proxy nextcloud-aio-nextcloud:80`
-- To go fully single-container, just `docker compose stop caddy` and use `nextcloud-aio-nextcloud:80` directly (bot already does `TALK_SERVER_URL=http://nextcloud-aio-nextcloud:80` internally).
+| File | What it tunes |
+| --- | --- |
+| `.env` | Passwords, domain, trusted proxies, Talk secrets (gitignored) |
+| `config/php-custom.ini` | Mounted as `zz-custom.ini` so it overrides the image defaults (10G uploads, 512M opcache, APCu) |
+| `config/apache-mpm.conf` | `MaxRequestWorkers=60` sized to the 8G app container (150 would OOM under load) |
+| `config/postgres-tuning.conf` | `shared_buffers=1G`, `max_connections=150`, WAL + planner tuning |
+| `Caddyfile` | Route to app + Talk signaling (`:80`, gzip, static caching) |
 
-## Tailscale Funnel
+> The image's `TRUSTED_PROXIES` handling expects a **space-separated** list and `trusted_domains` also accepts spaces - keep that format in `.env`.
 
-Publishes stock Nextcloud at `https://ck1189.tail650e17.ts.net` (no open ports, MagicDNS):
+## Scaling
 
-```powershell
-tailscale funnel --bg http://127.0.0.1:80   # caddy
-# or http://127.0.0.1:8080 for direct nextcloud
-# → https://ck1189.tail650e17.ts.net (Funnel on)
-```
-
-Fix Nextcloud's trusted domains (required for login via the funnel):
+For ~400 users start with `docker compose up -d --scale nextcloud-app=2` (see [SCALING.md](SCALING.md) for sizing).
+Because PHP sessions, distributed cache and locking are all in Redis, app instances are stateless:
 
 ```bash
-docker exec -u www-data nextcloud-aio-nextcloud php occ config:system:set trusted_domains 5 --value=ck1189.tail650e17.ts.net
-docker exec -u www-data nextcloud-aio-nextcloud php occ config:system:set overwritehost --value=ck1189.tail650e17.ts.net
-docker exec -u www-data nextcloud-aio-nextcloud php occ config:system:set overwrite.cli.url --value=https://ck1189.tail650e17.ts.net
-docker exec -u www-data nextcloud-aio-nextcloud php occ config:system:set overwriteprotocol --value=https
+docker compose up -d --scale nextcloud-app=3   # scale out
+docker compose up -d --scale nextcloud-app=1   # scale back for upgrades
 ```
 
-Desktop/mobile app → `https://ck1189.tail650e17.ts.net` (`admin` / `NEXTCLOUD_ADMIN_PASSWORD`). No Tailscale needed on the client if you use Cloudflare Tunnel; with Funnel the client must be on the tailnet or the funnel must be public (as above).
+Docker's embedded DNS round-robins the `nextcloud-app` name, so Caddy balances automatically.
+Real elastic autoscaling (adding replicas on load) needs Swarm/Kubernetes - details and trade-offs in SCALING.md.
 
-## Ami bot
+## Backups
 
-- Webhook: `http://ami-talk-bot:3979/api/talk/webhook` on `nextcloud-aio` (same network, no public port)
-- Bot → Nextcloud: `http://nextcloud-aio-nextcloud:80` (`TALK_SERVER_URL`, container-to-container, no TLS)
-- See [ami-nextcloud-talk](https://github.com/miel-R/ami-nextcloud-talk) — [DEPLOYMENT.md](https://github.com/miel-R/ami-nextcloud-talk/blob/main/DEPLOYMENT.md) for `talk:bot:install` (`--feature webhook --feature response`, 40-char secret) and per-room enable (`POST /ocs/v2.php/apps/spreed/api/v1/bot/{token}/{id}`).
+See [BACKUP.md](BACKUP.md). Minimum viable setup on the host (daily cron):
 
-Compose for the bot (`ami-nextcloud-talk/docker-compose.yml`):
+- `pg_dump` the `nextcloud` database to disk
+- snapshot/rsync the `nextcloud_www` volume (with `occ maintenance:mode --on` for a consistent copy)
 
-```yaml
-services:
-  ami-talk-bot:
-    build: .
-    container_name: ami-talk-bot
-    restart: unless-stopped
-    networks: [nextcloud-aio]
-    env_file: env/.env.dev.user
-networks: { nextcloud-aio: { external: true } }
-```
+## Talk
 
-## Changing domain
-
-Stock Nextcloud stores the domain in `overwritehost`/`overwrite.cli.url` and `trusted_domains` — not in `NC_DOMAIN` like AIO. To change:
+`talk` is optional and needs the public domain to serve the signaling backend:
 
 ```bash
-# 1. Update .env: NEXTCLOUD_TRUSTED_DOMAINS, OVERWRITECLIURL, NC_DOMAIN
-# 2. docker compose up -d --force-recreate nextcloud-aio-nextcloud
-# 3. occ set (as above) for the new host, or let the env vars apply on recreate
-# 4. Bot: edit env/.env.dev.user TALK_SERVER_URL to new https://... and docker compose up -d --build
+# app: enable the app
+docker exec -u www-data nextcloud-app php occ app:enable spreed
+
+# app: tell Nextcloud where the signaling + TURN servers live
+docker exec -u www-data nextcloud-app php occ spreed:signaling:add <NC_DOMAIN> --secret=<SIGNALING_SECRET> --verify=1
+docker exec -u www-data nextcloud-app php occ spreed:turn:add udp <NC_DOMAIN>:3478 --secret=<TURN_SECRET>
+docker exec -u www-data nextcloud-app php occ spreed:turn:add tcp <NC_DOMAIN>:3478 --secret=<TURN_SECRET>
 ```
 
-No `talk:bot:install` reinstall needed if the bot stays on the same host/network — webhook URL `http://ami-talk-bot:3979/...` is internal.
+Notes:
 
-## Bot operations
+- The AIO Talk container's signaling server listens on **8081** internally; the Caddyfile already proxies `/standalone-signaling` there.
+- Its signaling backend calls `https://<NC_DOMAIN>`. If you only have HTTP on `:80` (Tailscale Funnel), set `NC_DOMAIN` to a name that resolves publicly to the funnel, or add a TLS listener on `:443` (e.g. `tls internal` in Caddy) and set `SKIP_CERT_VERIFY=true` on the talk container for an internal-only setup.
+- Open/forward UDP **and** TCP 3478 on the firewall for TURN.
 
-Same as before — see stock `README` in `ami-nextcloud-talk`:
+## Upgrading
 
-- Approve: `ami $approve` / `ami $revoke` / `ami $list` (admin)
-- Escalation sink: `ami $notify-add` (in the target group) / `$notify-remove` / `$notify-list` / `$notify-test`
-- Intake: `Department → Category → System → Problem` from `ticket-categories.json`
+```bash
+# Put Nextcloud into maintenance mode
+docker exec -u www-data nextcloud-app php occ maintenance:mode --on
+
+# Pull new images and recreate (scale app back to 1 first if you scaled out)
+docker compose pull
+docker compose up -d --remove-orphans
+
+# Finish the upgrade (the app entrypoint runs `occ upgrade` automatically, but be explicit)
+docker exec -u www-data nextcloud-app php occ upgrade
+docker exec -u www-data nextcloud-app php occ maintenance:mode --off
+```
+
+## Monitoring
+
+- `docker compose ps` shows health status (db, redis, app all have healthchecks).
+- `http://<host>/status.php` returns the instance health.
+- Enable the **Serverinfo** app in Nextcloud and install the Nextcloud Serverinfo monitoring templates (Percona) or scrape `/ocs/v2.php/apps/serverinfo/api/v1/info` for load, memory and user counts.
+- Watch volume usage: `docker system df` and `df -h` on the volume backing directory.
 
 ## Related
 
-- 🤖 [`ami-nextcloud-talk`](https://github.com/miel-R/ami-nextcloud-talk) — Ami Help Desk bot
-- ☁️ Upstream: [`nextcloud:stable`](https://hub.docker.com/_/nextcloud)
+- Upstream image: [nextcloud docker](https://hub.docker.com/_/nextcloud)
+- AIO project: [nextcloud/all-in-one](https://github.com/nextcloud/all-in-one)
+- Amiteller Help Desk bot: [ami-nextcloud-talk](https://github.com/miel-R/ami-nextcloud-talk) (optional companion repo)

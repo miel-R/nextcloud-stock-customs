@@ -1,84 +1,240 @@
-name: nextcloud-aio
+name: nextcloud-stack
+
+# ============================================================================
+# Nextcloud stack sized for ~400 users
+# ----------------------------------------------------------------------------
+# Services:
+#   nextcloud-db      PostgreSQL 16
+#   nextcloud-redis   Redis (PHP sessions, distributed cache, file locking)
+#   nextcloud-app     Nextcloud Apache + PHP (scalable: --scale)
+#   nextcloud-cron    Background jobs (official /cron.sh)
+#   talk              Nextcloud Talk signaling + TURN (optional)
+#   caddy             Reverse proxy (HTTP :80 here; TLS via Tailscale funnel)
+#
+# SCALING (see SCALING.md):
+#   nextcloud-app is stateless on purpose:
+#     - PHP sessions        -> Redis  (image wires this up from REDIS_HOST)
+#     - distributed cache   -> Redis  (memcache.distributed)
+#     - file locking        -> Redis  (memcache.locking)
+#     - local cache         -> APCu   (built into the image)
+#     - webroot             -> shared named volume `nextcloud`
+#   To run more than one app instance with Compose on one host:
+#     docker compose up -d --scale nextcloud-app=3
+#   Docker's embedded DNS round-robins the `nextcloud-app` name across the
+#   replicas, so Caddy load-balances without any Caddyfile change.
+#   NOTE: `container_name` is intentionally NOT set on nextcloud-app because a
+#   fixed container name prevents `--scale`. True elastic autoscaling requires
+#   orchestration (Swarm/Kubernetes); deploy.replicas is honored there.
+# ============================================================================
+
 services:
-  nextcloud-aio-database:
+  # ------------------------------------------------------------
+  # 1. POSTGRESQL DATABASE
+  # ------------------------------------------------------------
+  nextcloud-db:
     image: postgres:16-alpine
-    container_name: nextcloud-aio-database
+    container_name: nextcloud-db
     restart: unless-stopped
     volumes:
       - db:/var/lib/postgresql/data
+      - ./config/postgres-tuning.conf:/etc/postgresql/postgresql.conf:ro
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-nextcloud}
       POSTGRES_USER: ${POSTGRES_USER:-nextcloud}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nextcloud} -d ${POSTGRES_DB:-nextcloud}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
     networks:
-      - nextcloud-aio
+      - nextcloud-network
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2'
+        reservations:
+          memory: 2G
+          cpus: '1'
 
-  nextcloud-aio-redis:
+  # ------------------------------------------------------------
+  # 2. REDIS CACHE (sessions + distributed cache + file locking)
+  # ------------------------------------------------------------
+  nextcloud-redis:
     image: redis:alpine
-    container_name: nextcloud-aio-redis
+    container_name: nextcloud-redis
     restart: unless-stopped
+    # allkeys-lru: evict least-recently-used keys instead of failing when full.
+    # 1g fits sessions + cache + locks for ~400 users; keep below the 1G limit.
+    command: redis-server --maxmemory 1gb --maxmemory-policy allkeys-lru --save "" --appendonly no
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - nextcloud-aio
+      - nextcloud-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
+# ------------------------------------------------------------
+  # 3. MAIN NEXTCLOUD APP (scalable, no host ports)
+  # ------------------------------------------------------------
+  nextcloud-app:
+    image: nextcloud:stable
+    # NO container_name on purpose: allows `docker compose up -d --scale nextcloud-app=N`
+    # (a fixed container_name conflicts with --scale).
+    restart: unless-stopped
+    volumes:
+      - nextcloud:/var/www/html
+      - ./config/apache-mpm.conf:/etc/apache2/conf-enabled/zz-mpm-tuning.conf:ro
+      # zz- prefix on purpose: PHP loads conf.d files alphabetically and the
+      # image's nextcloud.ini / opcache-recommended.ini would otherwise override
+      # our values silently.
+      - ./config/php-custom.ini:/usr/local/etc/php/conf.d/zz-custom.ini:ro
+    environment:
+      POSTGRES_HOST: nextcloud-db
+      REDIS_HOST: nextcloud-redis
+      POSTGRES_DB: ${POSTGRES_DB:-nextcloud}
+      POSTGRES_USER: ${POSTGRES_USER:-nextcloud}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
+      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER:-admin}
+      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD:?err}
+      NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_TRUSTED_DOMAINS:-localhost}
+      OVERWRITECLIURL: ${OVERWRITECLIURL:-http://localhost}
+      OVERWRITEPROTOCOL: ${OVERWRITEPROTOCOL:-http}
+      # Space-separated subnet(s) of reverse proxies (Caddy) in front of us.
+      # Must match the docker network subnet.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # Apache request body limit - must be >= upload_max_filesize in zz-custom.ini
+      APACHE_BODY_LIMIT: 10G
+    depends_on:
+      nextcloud-db:
+        condition: service_healthy
+      nextcloud-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1/status.php') ? 0 : 1);"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - nextcloud-network
+    deploy:
+      replicas: 1            # honored by Docker Swarm; for Compose use --scale
+      resources:
+        limits:
+          memory: 8G
+          cpus: "4"
+        reservations:
+          memory: 2G
+          cpus: "1"
 
+  # ------------------------------------------------------------
+  # 4. DEDICATED CRON CONTAINER (official /cron.sh -> busybox crond -f)
+  # ------------------------------------------------------------
+  nextcloud-cron:
+    image: nextcloud:stable
+    container_name: nextcloud-cron
+    restart: unless-stopped
+    entrypoint: /cron.sh
+    volumes:
+      - nextcloud:/var/www/html
+    depends_on:
+      nextcloud-db:
+        condition: service_healthy
+      nextcloud-redis:
+        condition: service_healthy
+    networks:
+      - nextcloud-network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1"
+        reservations:
+          memory: 1G
+          cpus: "0.5"
+
+  # ------------------------------------------------------------
+  # 5. NEXTCLOUD TALK (Signaling & TURN) - optional; see INSTALL.md
+  # ------------------------------------------------------------
+  talk:
+    image: nextcloud/aio-talk:latest
+    container_name: nextcloud-talk
+    restart: unless-stopped
+    environment:
+      NC_DOMAIN: ${NC_DOMAIN:?err}
+      TALK_HOST: ${NC_DOMAIN:?err}
+      TALK_PORT: 3478
+      TURN_SECRET: ${TURN_SECRET:?err}
+      SIGNALING_SECRET: ${SIGNALING_SECRET:?err}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?err}
+    volumes:
+      - nextcloud:/var/www/html:ro
+    depends_on:
+      - nextcloud-app
+    networks:
+      - nextcloud-network
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
+
+  # ------------------------------------------------------------
+  # 6. CADDY REVERSE PROXY (HTTP :80 only)
+  # ------------------------------------------------------------
   caddy:
     image: caddy:alpine
-    container_name: caddy
+    container_name: nextcloud-caddy
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "80:80"   # Only port 80 (TLS is terminated by Tailscale Funnel upstream)
     volumes:
       - caddy_data:/data
       - caddy_config:/config
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
-      - nextcloud-aio-nextcloud
+      - nextcloud-app
     networks:
-      - nextcloud-aio
+      - nextcloud-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1"
+        reservations:
+          memory: 256M
+          cpus: "0.5"
 
-  nextcloud-aio-nextcloud:
-    image: nextcloud:stable
-    container_name: nextcloud-aio-nextcloud
-    restart: unless-stopped
-    ports:
-      - ${HTTP_PORT:-8080}:80
-    volumes:
-      - nextcloud:/var/www/html
-    environment:
-      POSTGRES_HOST: nextcloud-aio-database
-      REDIS_HOST: nextcloud-aio-redis
-      POSTGRES_DB: ${POSTGRES_DB:-nextcloud}
-      POSTGRES_USER: ${POSTGRES_USER:-nextcloud}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
-      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER:-admin}
-      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD:?set in .env}
-      NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_TRUSTED_DOMAINS:-localhost}
-      OVERWRITECLIURL: ${OVERWRITECLIURL:-http://localhost:8080}
-    depends_on:
-      nextcloud-aio-database:
-        condition: service_healthy
-      nextcloud-aio-redis:
-        condition: service_healthy
-    networks:
-      - nextcloud-aio
-
+# ------------------------------------------------------------
 networks:
-  nextcloud-aio:
+  nextcloud-network:
     external: true
-    name: nextcloud-aio
+    name: nextcloud-network
 
 volumes:
   db:
+    name: nextcloud_db
   nextcloud:
+    name: nextcloud_www
   caddy_data:
+    name: caddy_data
   caddy_config:
+    name: caddy_config
