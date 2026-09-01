@@ -4,7 +4,7 @@ This repository contains a stock Nextcloud Docker setup with Caddy reverse proxy
 
 ## Overview
 
-- **Nextcloud**: Latest official image (no AIO 100-user limit)
+- **Nextcloud**: Latest official image (no 100-user limit)
 - **Caddy**: Reverse proxy with automatic TLS/Let's Encrypt
 - **Talk**: Video/audio calling support
 - **Talk Recording**: Call recording functionality
