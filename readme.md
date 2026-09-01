@@ -1,7 +1,22 @@
-# QA test plans
+<!--
+  - SPDX-FileCopyrightText: 2026 Nextcloud GmbH and Nextcloud contributors
+  - SPDX-License-Identifier: AGPL-3.0-or-later
+-->
 
-In this folder are manual test plans for QA located that allow to manually step through certain features and make sure that everything works as expected.
+# nextcloud-stock-customs
 
-For a test instance, you should make sure that all potentially breaking changes are merged, build new containers by following https://github.com/nextcloud/all-in-one/blob/main/develop.md#how-to-build-new-containers, stop a potential old instance, remove it and delete all volumes. Afterwards start a new clean test instance by following https://github.com/nextcloud/all-in-one/blob/main/develop.md#developer-channel.
+Stock Nextcloud (`nextcloud:stable` + `postgres:16` + `redis`) — **no AIO, no 100-user limit**.
 
-Best is to start testing with [001-initial-setup.md](./001-initial-setup.md).
+This repo is the former `nextcloud-aio-customs` converted to stock. Use `compose.yaml` (`nextcloud-net` network) with `ami-nextcloud-talk` bot.
+
+## Quick start
+
+```bash
+cp .env.example .env   # set POSTGRES_PASSWORD, NEXTCLOUD_ADMIN_*, NC_DOMAIN
+docker compose up -d
+# http://localhost:8080
+```
+
+Bot: `http://ami-talk-bot:3979/api/talk/webhook` on `nextcloud-net` (`TALK_SERVER_URL=http://nextcloud:80` or your public https).
+
+See `ami-nextcloud-talk` `DEPLOYMENT.md` for bot setup.
