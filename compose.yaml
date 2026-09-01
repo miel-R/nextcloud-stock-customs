@@ -59,7 +59,7 @@ services:
     networks:
       - nextcloud-net
 
-talk:
+  talk:
     image: nextcloud/talk:latest
     restart: always
     depends_on:
