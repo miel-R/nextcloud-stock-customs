@@ -1,112 +1,65 @@
 name: nextcloud-stock
 services:
   db:
-    image: postgres:15
-    restart: always
-    env_file:
-      - .env.db
+    image: postgres:16-alpine
+    restart: unless-stopped
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - db:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nextcloud}
+      POSTGRES_USER: ${POSTGRES_USER:-nextcloud}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nextcloud} -d ${POSTGRES_DB:-nextcloud}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nextcloud-net
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - nextcloud-net
 
   nextcloud:
-    image: nextcloud:latest
-    restart: always
-    ports:
-      - "8080:80"
-    environment:
-      - MYSQL_HOST=db
-      - POSTGRES_HOST=db
-      - POSTGRES_DB=nextcloud
-      - POSTGRES_USER=nextcloud
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-nextcloudpass}
-      - NEXTCLOUD_TRUSTED_DOMAINS=localhost,127.0.0.1,${NC_DOMAIN:-nextcloud.local}
-      - NEXTCLOUD_ADMIN_USER=${NC_ADMIN_USER:-admin}
-      - NEXTCLOUD_ADMIN_PASSWORD=${NC_ADMIN_PASSWORD:-admin}
-      - NEXTCLOUD_OVERWRITE_HOST=${NC_OVERWRITE_HOST:-nextcloud.local}
-      - NEXTCLOUD_DB_TYPE=postgres
-      - NEXTCLOUD_DB_NAME=nextcloud
-      - NEXTCLOUD_DB_USER=nextcloud
-      - NEXTCLOUD_DB_PASSWORD=${POSTGRES_PASSWORD:-nextcloudpass}
-      - NEXTCLOUD_DB_HOST=db
-    volumes:
-      - nextcloud_data:/var/www/html
-      - nextcloud_config:/var/www/html/config
-      - nextcloud_apps:/var/www/html/custom_apps
-    networks:
-      - nextcloud-net
-
-  caddy:
-    image: caddy:alpine
-    container_name: caddy
+    image: nextcloud:stable
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - ${HTTP_PORT:-8080}:80
     volumes:
-      - caddy_config:/config
-      - caddy_data:/data
-      - caddy_sites:/srv
-      - nextcloud_data:/nextcloud:ro
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - nextcloud:/var/www/html
     environment:
-      - CADDY_DNS_PROVIDER=external
-      - CADDY_AGREE=TOS
-      - NEXTCLOUD_DOMAIN=${NC_DOMAIN:-nextcloud.local}
-      - NEXTCLOUD_CLIENT_PORT=443
-      - TALK_HOST=${NC_DOMAIN:-nextcloud.local}
-    networks:
-      - nextcloud-net
-
-  talk:
-    image: nextcloud/talk:latest
-    restart: always
+      POSTGRES_HOST: db
+      REDIS_HOST: redis
+      POSTGRES_DB: ${POSTGRES_DB:-nextcloud}
+      POSTGRES_USER: ${POSTGRES_USER:-nextcloud}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER:-admin}
+      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD:?set in .env}
+      NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_TRUSTED_DOMAINS:-localhost}
+      OVERWRITECLIURL: ${OVERWRITECLIURL:-http://localhost:8080}
+      OVERWRITEPROTOCOL: https
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
     depends_on:
-      - nextcloud
-    environment:
-      - NEXTCLOUD_TRUSTED_DOMAINS=localhost,127.0.0.1,${NC_DOMAIN:-nextcloud.local}
-      - NEXTCLOUD_ADMIN_USER=${NC_ADMIN_USER:-admin}
-      - NEXTCLOUD_ADMIN_PASSWORD=${NC_ADMIN_PASSWORD:-admin}
-    volumes:
-      - nextcloud_data:/var/www/html:rw
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - nextcloud-net
-
-  talk-recording:
-    image: nextcloud/talk-recording:latest
-    restart: always
-    depends_on:
-      - talk
-    environment:
-      - NEXTCLOUD_TRUSTED_DOMAINS=localhost,127.0.0.1,${NC_DOMAIN:-nextcloud.local}
-    volumes:
-      - nextcloud_data:/var/www/html:rw
-    networks:
-      - nextcloud-net
-
-  ami-bot:
-    image: nextcloud/ami-bot:latest
-    restart: always
-    depends_on:
-      - talk
-    environment:
-      - NEXTCLOUD_TRUSTED_DOMAINS=localhost,127.0.0.1,${NC_DOMAIN:-nextcloud.local}
-      - NEXTCLOUD_ADMIN_USER=${NC_ADMIN_USER:-admin}
-      - NEXTCLOUD_ADMIN_PASSWORD=${NC_ADMIN_PASSWORD:-admin}
-    volumes:
-      - nextcloud_data:/var/www/html:rw
-    networks:
-      - nextcloud-net
-
 networks:
   nextcloud-net:
+    name: nextcloud-net
 
 volumes:
-  postgres_data:
-  nextcloud_data:
-  nextcloud_config:
-  nextcloud_apps:
-  caddy_config:
+  db:
+  nextcloud:
   caddy_data:
-  caddy_sites:
+  caddy_config:
