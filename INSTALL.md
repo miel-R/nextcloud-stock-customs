@@ -127,8 +127,10 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-Fill in at the minimum the secrets and domain (`openssl rand -base64 24` to
-generate passwords; on Windows use `docker run --rm alpine openssl rand -base64 24`):
+Fill in at the minimum the secrets and domain. To generate passwords on Ubuntu
+use `openssl rand -base64 24`; on Windows use the PowerShell one-liner in the
+Talk secrets block below (the same `New-Object ... RNGCryptoServiceProvider`
+pattern):
 
 ```bash
 POSTGRES_PASSWORD=<long random>
@@ -162,12 +164,13 @@ openssl rand -hex 16      # BLOCK_KEY
 openssl rand -hex 32      # HASH_KEY
 ```
 
-**Windows (no local openssl - run it through Docker):**
+**Windows (native PowerShell - no Docker/openssl needed):** run these one-liners
+3x for the secrets, 1x each for the keys:
 
 ```powershell
-docker run --rm alpine openssl rand -base64 32   # 3x
-docker run --rm alpine openssl rand -hex 16      # BLOCK_KEY
-docker run --rm alpine openssl rand -hex 32      # HASH_KEY
+$rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider; $b = New-Object byte[] 24; $rng.GetBytes($b); [System.Convert]::ToBase64String($b)   # 3x -> TURN, SIGNALING, INTERNAL
+$rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider; $b = New-Object byte[] 16; $rng.GetBytes($b); ($b | ForEach-Object { $_.ToString('x2') }) -join ''   # BLOCK_KEY
+$rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider; $b = New-Object byte[] 32; $rng.GetBytes($b); ($b | ForEach-Object { $_.ToString('x2') }) -join ''   # HASH_KEY
 ```
 
 Then paste them into `.env`:
