@@ -80,7 +80,8 @@ Talk secrets: `openssl rand -base64 32` for `TURN_SECRET` / `SIGNALING_SECRET` /
 | `.env` | Passwords, domain, trusted proxies, Talk secrets (gitignored) |
 | `config/php-custom.ini` | Mounted as `zz-custom.ini` so it overrides the image defaults (2G uploads, 128M opcache, APCu) - keep uploads in sync with `UPLOAD_MAX_SIZE` |
 | `config/apache-mpm.conf` | Apache worker counts (`APP_MAX_WORKERS`) env-driven; 16 workers on the small 8 GB profile, 50 on the standard one |
-| `config/postgres-tuning.conf` | WAL + planner tuning; memory knobs live in `.env` (`DB_*`, passed on the DB command line) |
+| `config/postgres-tuning.conf` | WAL + planner tuning + `listen_addresses='*'` (required so the app can reach Postgres and the image can create the DB); memory knobs live in `.env` (`DB_*`, passed on the DB command line) |
+| `config/pg_hba.conf` | Mounted client-auth rules allowing the `nextcloud-network` subnet (stock default only trusts localhost, which would block the app) |
 | `Caddyfile` | Route to app + Talk signaling (`:80`, gzip, static caching) |
 
 > The image's `TRUSTED_PROXIES` handling expects a **space-separated** list and `trusted_domains` also accepts spaces - keep that format in `.env`.

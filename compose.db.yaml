@@ -35,13 +35,18 @@ services:
     volumes:
       - db:/var/lib/postgresql/data
       - ./config/postgres-tuning.conf:/etc/postgresql/postgresql.conf:ro
+      # Explicit pg_hba.conf so the app container can connect over the Docker
+      # network (stock default only trusts localhost -> "connection refused").
+      - ./config/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-nextcloud}
       POSTGRES_USER: ${POSTGRES_USER:-nextcloud}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
     # Memory/work knobs are passed on the command line so they can be set from
-    # .env; the mounted postgresql.conf keeps the WAL + planner tuning.
+    # .env; the mounted postgresql.conf keeps the WAL + planner tuning, and the
+    # mounted pg_hba.conf is pointed to via hba_file.
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
+      -c hba_file=/etc/postgresql/pg_hba.conf
       -c shared_buffers=${DB_SHARED_BUFFERS:-512MB}
       -c effective_cache_size=${DB_EFFECTIVE_CACHE_SIZE:-1GB}
       -c work_mem=${DB_WORK_MEM:-8MB}
