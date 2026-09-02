@@ -143,8 +143,41 @@ TRUSTED_PROXIES=<subnet>                 # docker network inspect nextcloud-netw
 If using **Tailscale Funnel** (`.ts.net` domain, no real certificate):
 
 ```bash
-OVERWRITECLIURL=https://<your>.ts.net
+NC_DOMAIN=<your-host>.ts.net
+OVERWRITECLIURL=https://<your-host>.ts.net
 OVERWRITEPROTOCOL=https
+NEXTCLOUD_TRUSTED_DOMAINS=localhost 127.0.0.1 nextcloud <your-host>.ts.net
+```
+
+### Talk secrets (required - the stack ships Talk)
+
+`signaling` and `turn` fail to start if the Talk secrets are still the
+`CHANGE_ME_*` placeholders, so generate real values **before** first start.
+
+**Ubuntu (use `openssl`):**
+
+```bash
+openssl rand -base64 32   # run 3x -> TURN_SECRET, SIGNALING_SECRET, INTERNAL_SECRET
+openssl rand -hex 16      # BLOCK_KEY
+openssl rand -hex 32      # HASH_KEY
+```
+
+**Windows (no local openssl - run it through Docker):**
+
+```powershell
+docker run --rm alpine openssl rand -base64 32   # 3x
+docker run --rm alpine openssl rand -hex 16      # BLOCK_KEY
+docker run --rm alpine openssl rand -hex 32      # HASH_KEY
+```
+
+Then paste them into `.env`:
+
+```bash
+TURN_SECRET=<base64>
+SIGNALING_SECRET=<base64>
+INTERNAL_SECRET=<base64>
+BLOCK_KEY=<32 hex chars>
+HASH_KEY=<64 hex chars>
 ```
 
 Leave the **SIZING block** on Preset A (default) for an 8 GB box, or uncomment
