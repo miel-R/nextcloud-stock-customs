@@ -135,12 +135,23 @@ pattern):
 ```bash
 POSTGRES_PASSWORD=<long random>
 NEXTCLOUD_ADMIN_PASSWORD=<long random>
-NC_DOMAIN=nextcloud.example.com          # no scheme, no port
+NC_DOMAIN=nextcloud.example.com          # no scheme, no port, NO trailing slash
 OVERWRITECLIURL=https://nextcloud.example.com
 OVERWRITEPROTOCOL=https
 NEXTCLOUD_TRUSTED_DOMAINS=localhost 127.0.0.1 nextcloud nextcloud.example.com
 TRUSTED_PROXIES=<subnet>                 # docker network inspect nextcloud-network
 ```
+
+> **The `nextcloud.example.com` placeholder must be REPLACED by your real domain
+> in *all three* places** above: `NC_DOMAIN`, `OVERWRITECLIURL`, and
+> `NEXTCLOUD_TRUSTED_DOMAINS`. If you leave the placeholder, or make a typo, the
+> browser will show **"Please contact your administrator ... edit the
+> trusted_domains setting"** even though the install succeeded.
+>
+> `NC_DOMAIN` must have **no scheme (no `https://`) and no trailing slash** - a
+> trailing `/` breaks the value. The trusted-domain / overwrite settings are read
+> when the app container starts, so after changing them you must recreate the app
+> container (step 7) - they are **not** picked up from a running container.
 
 If using **Tailscale Funnel** (`.ts.net` domain, no real certificate):
 
@@ -245,6 +256,11 @@ curl.exe -fsS http://localhost/status.php
 The image sets `overwritehost`, `overwriteprotocol` and `overwrite.cli.url` from
 the `.env` values, so manual `occ` changes are usually not required.
 
+> If you get the **"trusted domain"** page here, the install worked but your
+> domain was left out (see step 5). Fix `.env` (`NEXTCLOUD_TRUSTED_DOMAINS`,
+> `NC_DOMAIN`) and recreate the app container - you do **not** need to reinstall.
+> The recreated entrypoint rewrites `config.php` with the corrected domains.
+
 ## 9. Verify background jobs
 
 Cron runs in the dedicated `nextcloud-cron` container:
@@ -312,7 +328,7 @@ Full reinstall / fresh start uses the same two commands plus the one-time
 | `network nextcloud-network not found` | Run `docker network create nextcloud-network` once |
 | 500 on first load | `docker compose logs nextcloud-app`; DB not started yet or `POSTGRES_PASSWORD` empty - start `compose.db.yaml` first |
 | App can't reach `nextcloud-db` / DB errors at boot | Start the database project first: `docker compose -f compose.db.yaml up -d` |
-| "Trusted domain" error | Add the host to `NEXTCLOUD_TRUSTED_DOMAINS` and recreate the app container |
+| "Please contact your administrator ... edit the trusted_domains setting" | The real domain is missing from `NEXTCLOUD_TRUSTED_DOMAINS` in `.env` (install succeeded but the browser host isn't trusted). Put your actual domain in as the last entry (`localhost 127.0.0.1 nextcloud <your-domain>`), fix `NC_DOMAIN` (no trailing slash), then recreate the app container so the entrypoint regenerates `config.php` |
 | App container restarts / OOM | Lower `APP_MAX_WORKERS` and/or `APP_MEM_LIMIT` in `.env` (they must stay in ratio: workers x ~150 MB < limit), or raise the host RAM |
 | `nextcloud-turn` never starts / machine lags on `up` | The 16k UDP relay range (`49152-65535`) is no longer in the main compose file - it hangs on Docker Desktop and is slow on Linux. Use the small optional override only on native Linux when you need TURN relay: `docker compose -f compose.yaml -f compose.turn.yaml up -d` |
 | Talk no audio / no signaling | Verify `spreed:signaling:list` / `spreed:turn:list`; 3478 UDP/TCP reachable; host RAM (see small-host profile in [SCALING.md](SCALING.md)) |
