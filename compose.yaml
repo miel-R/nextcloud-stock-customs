@@ -69,9 +69,10 @@ services:
       # Space-separated subnet(s) of reverse proxies (Caddy) in front of us.
       # Must match the docker network subnet.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
-      # Apache request body limit - must be >= upload_max_filesize in zz-custom.ini
-      # Tune with UPLOAD_MAX_SIZE (keep both files in sync, see SCALING.md)
-      APACHE_BODY_LIMIT: ${UPLOAD_MAX_SIZE:-2G}
+      # Apache request body limit - must be >= upload_max_filesize in zz-custom.ini.
+      # Apache's LimitRequestBody accepts BYTES only (no G/M suffix). Keep in
+      # sync with UPLOAD_MAX_SIZE (php-custom.ini): 2G = 2147483648 bytes.
+      APACHE_BODY_LIMIT: ${APACHE_BODY_LIMIT:-2147483648}
     healthcheck:
       test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1/status.php') ? 0 : 1);"]
       interval: 30s
