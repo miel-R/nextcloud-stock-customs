@@ -3,10 +3,10 @@
 # - HTTP only (:80). TLS is terminated upstream (Tailscale Funnel / external
 #   reverse proxy), so Nextcloud is told the public scheme via the
 #   OVERWRITEPROTOCOL / OVERWRITECLIURL env vars in .env.
-# - reverse_proxy targets the `nextcloud-app` service name. When the app is
-#   scaled with `docker compose up -d --scale nextcloud-app=N`, Docker's
-#   embedded DNS round-robins that name across all replicas, so Caddy
-#   load-balances automatically - no changes needed here.
+# - reverse_proxy targets the `nextcloud-nginx` sidecar (stock nginx in front of
+#   the PHP-FPM `nextcloud-app` service). When the app is scaled with
+#   `docker compose up -d --scale nextcloud-app=N`, nginx resolves PHP to the
+#   FPM pool on :9000 automatically.
 # - The Talk signaling server inside the `signaling` service (stock
 #   strukturag/nextcloud-spreed-signaling image) listens on 8081 internally,
 #   which is why /standalone-signaling is proxied to nextcloud-signaling:8081
@@ -34,9 +34,9 @@
         reverse_proxy nextcloud-signaling:8081
     }
 
-    # Everything else -> Nextcloud (load-balanced across app replicas)
+    # Everything else -> Nginx (serves static, proxies PHP to FPM)
     handle {
-        reverse_proxy nextcloud-app:80 {
+        reverse_proxy nextcloud-nginx:80 {
             # Forward timeouts for long-running Nextcloud operations
             transport http {
                 read_buffer 0

@@ -5,9 +5,7 @@
 
 # nextcloud-stock-customs
 
-A stock Nextcloud Docker stack sized for ~400 users: `nextcloud:stable` (Apache + PHP) behind a Caddy reverse proxy, with PostgreSQL 16, Redis (sessions/cache/locking), a dedicated cron container and optional Nextcloud Talk.
-
-Stock Nextcloud Docker images only - no mastercontainer, no 100-user limit: you own the scaling and the upgrades.
+A stock Nextcloud Docker stack sized for ~400 users: `nextcloud:stable-fpm` (PHP-FPM) fronted by a stock `nginx` sidecar, behind a Caddy reverse proxy, with PostgreSQL 16, Redis (sessions/cache/locking), a dedicated cron container and optional Nextcloud Talk. The app tier uses the AIO-style runtime model (nginx + PHP-FPM) with **stock images only** - no mastercontainer, no 100-user limit: you own the scaling and the upgrades.
 
 ## Contents
 
@@ -30,7 +28,8 @@ Stock Nextcloud Docker images only - no mastercontainer, no 100-user limit: you 
 | --- | --- | --- |
 | `nextcloud-db` | `postgres:16-alpine` | Database - standalone project (`compose.db.yaml`) |
 | `nextcloud-redis` | `redis:alpine` | PHP sessions, distributed cache, file locking - standalone project |
-| `nextcloud-app` | `nextcloud:stable` | Nextcloud Apache + PHP (scalable, no host ports) |
+| `nextcloud-app` | `nextcloud:stable-fpm` | Nextcloud PHP-FPM (scalable, no host ports; pool auto-scales with `APP_MEM_LIMIT`) |
+| `nextcloud-nginx` | `nginx:1.27-alpine` | Serves static files + proxies PHP to `nextcloud-app:9000` (AIO-style runtime model) |
 | `nextcloud-cron` | `nextcloud:stable` | Background jobs via the official `/cron.sh` |
 | `signaling` | `strukturag/nextcloud-spreed-signaling:2.1.1` | Optional Talk standalone signaling server (backend-authorised, no webroot mount) |
 | `turn` | `eturnal/eturnal:1.12.2` | Optional STUN/TURN relay for Talk clients behind restrictive NATs |
@@ -79,7 +78,8 @@ Talk secrets: `openssl rand -base64 32` for `TURN_SECRET` / `SIGNALING_SECRET` /
 | --- | --- |
 | `.env` | Passwords, domain, trusted proxies, Talk secrets (gitignored) |
 | `config/php-custom.ini` | Mounted as `zz-custom.ini` so it overrides the image defaults (2G uploads, 128M opcache, APCu) - keep uploads in sync with `UPLOAD_MAX_SIZE` |
-| `config/apache-mpm.conf` | Apache worker counts (`APP_MAX_WORKERS`) env-driven; 16 workers on the small 8 GB profile, 50 on the standard one |
+| `config/fpm-entrypoint.sh` | Renders the PHP-FPM pool (`zz-pool.conf`) from env at startup; auto-derives `pm.max_children` from `APP_MEM_LIMIT` at ~150 MB/child unless `APP_FPM_MAX_CHILDREN` is set |
+| `config/nginx.conf` | Nginx sidecar config: serves static files from the shared `nextcloud` webroot, proxies PHP to `nextcloud-app:9000`, `client_max_body_size` = `UPLOAD_MAX_SIZE` |
 | `config/postgres-tuning.conf` | WAL + planner tuning + `listen_addresses='*'` (required so the app can reach Postgres and the image can create the DB); memory knobs live in `.env` (`DB_*`, passed on the DB command line) |
 | `config/pg_hba.conf` | Mounted client-auth rules allowing the `nextcloud-network` subnet (stock default only trusts localhost, which would block the app) |
 | `Caddyfile` | Route to app + Talk signaling (`:80`, gzip, static caching) |
@@ -125,8 +125,7 @@ docker compose up -d --scale nextcloud-app=3   # scale out
 docker compose up -d --scale nextcloud-app=1   # scale back for upgrades
 ```
 
-Docker's embedded DNS round-robins the `nextcloud-app` name, so Caddy balances automatically.
-Real elastic autoscaling (adding replicas on load) needs Swarm/Kubernetes - details and trade-offs in SCALING.md.
+Docker's embedded DNS round-robins the `nextcloud-app` name, so nginx balances FPM automatically across replicas. Real elastic autoscaling (adding replicas on load) needs Swarm/Kubernetes - details and trade-offs in SCALING.md.
 
 ## Backups
 

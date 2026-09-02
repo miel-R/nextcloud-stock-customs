@@ -4,7 +4,14 @@ Goal: comfortably serve ~400 users and know exactly when and how to add capacity
 
 ## What is already stateless
 
-`nextcloud-app` is designed to be scaled horizontally on purpose:
+The app tier uses the AIO-style runtime model with stock images: **PHP-FPM** inside
+`nextcloud-app` renders all requests and auto-scales its worker pool (`pm`) to match
+`APP_MEM_LIMIT`, and a stock **nginx** sidecar (`nextcloud-nginx`) serves static files
+and proxies PHP to `nextcloud-app:9000`. This replaces the old Apache+mod_php tier whose
+prefork worker-count env expansion was unreliable and serialized concurrent requests
+(the source of the "slow as hell" symptoms).
+
+`nextcloud-app` is also designed to be scaled horizontally on purpose:
 
 | Concern | Where it lives |
 | --- | --- |
@@ -44,23 +51,27 @@ docker compose up -d --scale nextcloud-app=1
 raised on a <= 16 GB host: memory budget, not CPU, is what caps replicas. See
 [Scale on demand](#scale-on-demand--small-host-profile) below.
 
-Caddy proxies to the literal service name `nextcloud-app`. Docker's embedded DNS round-robins that name across every replica's IP, so no Caddyfile change is needed. Replicas share the webroot volume; do not run `occ` from more than one container at a time.
+Caddy proxies to the `nextcloud-app` sidecar `nextcloud-nginx`, which serves static files and
+proxies PHP to the FPM pool on `nextcloud-app:9000`. Docker's embedded DNS resolves
+`nextcloud-app` across every replica's IP, so FPM round-robins automatically - no Caddyfile
+change is needed. Replicas share the webroot volume; do not run `occ` from more than one container at a time.
 
 ### How many replicas?
 
 With the size presets, sizing is a table read rather than a guess:
 
-| Host RAM | `APP_MEM_LIMIT` | `APP_MAX_WORKERS` | `APP_REPLICAS` | Users (Talk on) |
+| Host RAM | `APP_MEM_LIMIT` | `APP_FPM_MAX_CHILDREN` | `APP_REPLICAS` | Users (Talk on) |
 | --- | --- | --- | --- | --- |
-| 8 GB | 3G | 16 | 1 (max) | 25-75 light |
-| 16 GB | 4G | 24 | 1 | 75-150 |
-| 32 GB | 8G | 48 | 1 | 150-300 |
-| 64 GB | 8G | 50 | 2 | 300-400 |
+| 8 GB | 3G | auto (~20) | 1 (max) | 25-75 light |
+| 16 GB | 4G | auto (~27) | 1 | 75-150 |
+| 32 GB | 8G | auto (~54) | 1 | 150-300 |
+| 64 GB | 8G | auto (~54) | 2 | 300-400 |
 
-Watch `MaxRequestWorkers` (= `APP_MAX_WORKERS`): the total (workers x ~150 MB)
-must stay under `APP_MEM_LIMIT`. The values above keep that ratio safe. If a
-replica starts OOM-killing, either raise the limit or lower the worker count -
-do not just add replicas with a bloated worker count.
+`APP_FPM_MAX_CHILDREN` is optional: leave it empty and the entrypoint derives `pm.max_children`
+from `APP_MEM_LIMIT` at ~150 MB per child (3G -> ~20; 8G -> ~54). Override it in `.env` only if
+you calibrate per child. The total (children x ~150 MB) must stay under `APP_MEM_LIMIT`. If a
+replica starts OOM-killing, raise the limit or lower the child count - do not just add replicas
+with a bloated pool.
 
 ## Upgrades with replicas
 
@@ -95,7 +106,8 @@ physical RAM (plus the OS and the kernel page cache). The small presets in
 
 | Service | Limit | Notes |
 | --- | --- | --- |
-| nextcloud-app | 3G / 16 workers | biggest single consumer; trimmed from 8G/60 |
+| nextcloud-app | 3G / auto pool (~20 children) | biggest single consumer; trimmed from 8G |
+| nextcloud-nginx | 256M | static file server + PHP proxy, stateless |
 | nextcloud-cron | 512M | background jobs only |
 | signaling | 1G | kept at full size - Talk is the priority |
 | turn | 512M | kept at full size - Talk is the priority |
@@ -152,7 +164,7 @@ For a 400-user organization starting today, Option 1 is the pragmatic path. Revi
 | Component | Value in this repo (default / small-8GB profile) |
 | --- | --- |
 | Host RAM | >= 8 GB for the small profile; >= 32 GB for ~400 users (64 GB if 2 app replicas + Talk) |
-| App | `APP_MEM_LIMIT=3G` / `APP_MAX_WORKERS=16` (small); 8G / 50 (standard; >16 GB host) |
+| App | `APP_MEM_LIMIT=3G` / FPM auto pool (small); 8G / auto (standard; >16 GB host). Optionally pin `APP_FPM_MAX_CHILDREN`. |
 | DB | `DB_MEM_LIMIT=2G`, `DB_SHARED_BUFFERS=512M`, `DB_MAX_CONNECTIONS=60` (in `compose.db.yaml`) |
 | Redis | `REDIS_MEM_LIMIT=512M`, `REDIS_MAXMEMORY=512mb` (in `compose.db.yaml`) |
 | Data disk | SSD/NVMe, monitor with `df -h` and `docker system df` |

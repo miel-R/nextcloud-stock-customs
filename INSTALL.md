@@ -40,7 +40,7 @@ Two ready-made presets are shipped in `.env.example`:
 | Host RAM | Preset | Realistic load |
 | --- | --- | --- |
 | 8 GB | A | 25-75 light users with Talk |
-| 16 GB | A (raise `APP_MEM_LIMIT`/`APP_MAX_WORKERS`) | 75-150 |
+| 16 GB | A (raise `APP_MEM_LIMIT`) | 75-150 |
 | 32+ GB | B | 150-400 |
 
 ## 2. Prerequisites (Docker itself)
@@ -329,9 +329,9 @@ Full reinstall / fresh start uses the same two commands plus the one-time
 | 500 on first load | `docker compose logs nextcloud-app`; DB not started yet or `POSTGRES_PASSWORD` empty - start `compose.db.yaml` first |
 | App can't reach `nextcloud-db` / DB errors at boot | Start the database project first: `docker compose -f compose.db.yaml up -d` |
 | "Please contact your administrator ... edit the trusted_domains setting" | The real domain is missing from `NEXTCLOUD_TRUSTED_DOMAINS` in `.env` (install succeeded but the browser host isn't trusted). Put your actual domain in as the last entry (`localhost 127.0.0.1 nextcloud <your-domain>`), fix `NC_DOMAIN` (no trailing slash), then recreate the app container so the entrypoint regenerates `config.php` |
-| App container restarts / OOM | Lower `APP_MAX_WORKERS` and/or `APP_MEM_LIMIT` in `.env` (they must stay in ratio: workers x ~150 MB < limit), or raise the host RAM |
+| App container restarts / OOM | Lower `APP_MEM_LIMIT` in `.env` (FPM derives `pm.max_children` from it; total children x ~150 MB must stay below the limit), or raise the host RAM |
 | `nextcloud-turn` never starts / machine lags on `up` | The 16k UDP relay range (`49152-65535`) is no longer in the main compose file - it hangs on Docker Desktop and is slow on Linux. Use the small optional override only on native Linux when you need TURN relay: `docker compose -f compose.yaml -f compose.turn.yaml up -d` |
 | Talk no audio / no signaling | Verify `spreed:signaling:list` / `spreed:turn:list`; 3478 UDP/TCP reachable; host RAM (see small-host profile in [SCALING.md](SCALING.md)) |
 | Host OOM-kills containers despite limits | Add swap (`fallocate -l 8G /swapfile` on Ubuntu); aux services carry `oom_score_adj: 500` so the app/Talk tier dies last |
-| Uploads stuck at 512 MB | Keep `upload_max_filesize`/`post_max_size` in `config/php-custom.ini` in sync with `UPLOAD_MAX_SIZE` in `.env` (both default `2G`) and set `APACHE_BODY_LIMIT` (bytes) >= it, then recreate the app container |
+| Uploads stuck at 512 MB | Keep `upload_max_filesize`/`post_max_size` in `config/php-custom.ini` in sync with `UPLOAD_MAX_SIZE` in `.env` (both default `2G`) and the nginx `client_max_body_size` in `config/nginx.conf`, then recreate the app + nginx containers |
 | Sessions lost on scaling | Confirm `REDIS_HOST` is set on the app (image writes the PHP session handler to Redis) |
