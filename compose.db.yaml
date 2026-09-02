@@ -20,6 +20,10 @@ name: nextcloud-database
 # Start/stop and the managed-cloud migration path: see DATABASE.md
 # ============================================================================
 
+# Sizing is env-driven (see SCALING.md). Defaults fit a small 8 GB host with
+# Talk; the standard 400-user preset is documented in .env.example.
+# ============================================================================
+
 services:
   # ------------------------------------------------------------
   # POSTGRESQL DATABASE (singleton - never scale this service)
@@ -35,7 +39,16 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-nextcloud}
       POSTGRES_USER: ${POSTGRES_USER:-nextcloud}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
+    # Memory/work knobs are passed on the command line so they can be set from
+    # .env; the mounted postgresql.conf keeps the WAL + planner tuning.
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
+      -c shared_buffers=${DB_SHARED_BUFFERS:-512M}
+      -c effective_cache_size=${DB_EFFECTIVE_CACHE_SIZE:-1G}
+      -c work_mem=${DB_WORK_MEM:-8MB}
+      -c maintenance_work_mem=${DB_MAINT_WORK_MEM:-128MB}
+      -c max_connections=${DB_MAX_CONNECTIONS:-60}
+      -c max_wal_size=${DB_MAX_WAL_SIZE:-1G}
+      -c min_wal_size=${DB_MIN_WAL_SIZE:-512M}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nextcloud} -d ${POSTGRES_DB:-nextcloud}"]
       interval: 10s
@@ -47,11 +60,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
-          cpus: '2'
+          memory: ${DB_MEM_LIMIT:-2G}
+          cpus: '${DB_CPUS_LIMIT:-1}'
         reservations:
-          memory: 2G
-          cpus: '1'
+          memory: ${DB_MEM_RES:-1G}
+          cpus: '${DB_CPUS_RES:-1}'
 
   # ------------------------------------------------------------
   # REDIS (shared sessions / cache / file locking - singleton)
@@ -61,8 +74,8 @@ services:
     container_name: nextcloud-redis
     restart: unless-stopped
     # allkeys-lru: evict least-recently-used keys instead of failing when full.
-    # 1g fits sessions + cache + locks for ~400 users; keep below the 1G limit.
-    command: redis-server --maxmemory 1gb --maxmemory-policy allkeys-lru --save "" --appendonly no
+    # Keep maxmemory below the container limit. Size via REDIS_MAXMEMORY.
+    command: redis-server --maxmemory ${REDIS_MAXMEMORY:-512mb} --maxmemory-policy allkeys-lru --save "" --appendonly no
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -73,11 +86,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
-          cpus: "1"
+          memory: ${REDIS_MEM_LIMIT:-512M}
+          cpus: "${REDIS_CPUS_LIMIT:-1}"
         reservations:
-          memory: 512M
-          cpus: "0.5"
+          memory: ${REDIS_MEM_RES:-256M}
+          cpus: "${REDIS_CPUS_RES:-0.5}"
 
 # ------------------------------------------------------------
 networks:

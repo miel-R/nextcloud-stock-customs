@@ -29,6 +29,14 @@ name: nextcloud-stack
 #   NOTE: `container_name` is intentionally NOT set on nextcloud-app because a
 #   fixed container name prevents `--scale`. True elastic autoscaling requires
 #   orchestration (Swarm/Kubernetes); deploy.replicas is honored there.
+#
+# SIZING (see SCALING.md) is env-driven - no hardcoded sizes here:
+#   - memory/CPU limits/reservations come from ONE_* vars in .env
+#   - replica floor defaults to 1 (APP_REPLICAS) and is the minimum on any host
+#   - Apache worker count follows APP_MAX_WORKERS (Apache expands ${VAR} from
+#     the container environment when loading config/apache-mpm.conf)
+#   - the upload ceiling follows UPLOAD_MAX_SIZE (matches php-custom.ini)
+#   Copy the matching preset block from .env.example into .env and restart.
 # ============================================================================
 
 services:
@@ -62,7 +70,8 @@ services:
       # Must match the docker network subnet.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       # Apache request body limit - must be >= upload_max_filesize in zz-custom.ini
-      APACHE_BODY_LIMIT: 10G
+      # Tune with UPLOAD_MAX_SIZE (keep both files in sync, see SCALING.md)
+      APACHE_BODY_LIMIT: ${UPLOAD_MAX_SIZE:-2G}
     healthcheck:
       test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1/status.php') ? 0 : 1);"]
       interval: 30s
@@ -72,14 +81,14 @@ services:
     networks:
       - nextcloud-network
     deploy:
-      replicas: 1            # honored by Docker Swarm; for Compose use --scale
+      replicas: ${APP_REPLICAS:-1}   # honored by Swarm; for Compose use --scale
       resources:
         limits:
-          memory: 8G
-          cpus: "4"
+          memory: ${APP_MEM_LIMIT:-3G}
+          cpus: "${APP_CPUS_LIMIT:-2}"
         reservations:
-          memory: 2G
-          cpus: "1"
+          memory: ${APP_MEM_RES:-1G}
+          cpus: "${APP_CPUS_RES:-1}"
 
   # ------------------------------------------------------------
   # 2. DEDICATED CRON CONTAINER (official /cron.sh -> busybox crond -f)
@@ -93,14 +102,15 @@ services:
       - nextcloud:/var/www/html
     networks:
       - nextcloud-network
+    oom_score_adj: 500   # background job - never OOM-kill the app/Talk before it
     deploy:
       resources:
         limits:
-          memory: 2G
-          cpus: "1"
+          memory: ${CRON_MEM_LIMIT:-512M}
+          cpus: "${CRON_CPUS_LIMIT:-1}"
         reservations:
-          memory: 1G
-          cpus: "0.5"
+          memory: ${CRON_MEM_RES:-256M}
+          cpus: "${CRON_CPUS_RES:-0.5}"
 
   # ------------------------------------------------------------
   # 3. NEXTCLOUD TALK - optional; see readme.md
@@ -132,14 +142,15 @@ services:
       - nextcloud-app
     networks:
       - nextcloud-network
+    oom_score_adj: 500
     deploy:
       resources:
         limits:
-          memory: 1G
-          cpus: "1"
+          memory: ${SIGNALING_MEM_LIMIT:-1G}
+          cpus: "${SIGNALING_CPUS_LIMIT:-1}"
         reservations:
-          memory: 512M
-          cpus: "0.5"
+          memory: ${SIGNALING_MEM_RES:-512M}
+          cpus: "${SIGNALING_CPUS_RES:-0.5}"
 
   turn:
     image: eturnal/eturnal:1.12.2
@@ -165,14 +176,15 @@ services:
       - "49152-65535:49152-65535/udp"
     networks:
       - nextcloud-network
+    oom_score_adj: 500
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: "1"
+          memory: ${TURN_MEM_LIMIT:-512M}
+          cpus: "${TURN_CPUS_LIMIT:-1}"
         reservations:
-          memory: 256M
-          cpus: "0.5"
+          memory: ${TURN_MEM_RES:-256M}
+          cpus: "${TURN_CPUS_RES:-0.5}"
 
   # ------------------------------------------------------------
   # 4. CADDY REVERSE PROXY (HTTP :80 only)
@@ -191,14 +203,15 @@ services:
       - nextcloud-app
     networks:
       - nextcloud-network
+    oom_score_adj: 500
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: "1"
+          memory: ${CADDY_MEM_LIMIT:-256M}
+          cpus: "${CADDY_CPUS_LIMIT:-1}"
         reservations:
-          memory: 256M
-          cpus: "0.5"
+          memory: ${CADDY_MEM_RES:-128M}
+          cpus: "${CADDY_CPUS_RES:-0.5}"
 
 # ------------------------------------------------------------
 networks:

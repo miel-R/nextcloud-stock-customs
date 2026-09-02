@@ -69,9 +69,11 @@ The named volume `nextcloud_db` is reused as-is, so existing data stays intact.
 - Never run `--scale nextcloud-db` or `--scale nextcloud-redis`. They are
   stateful singletons: two PostgreSQL instances on one volume corrupt data, two
   Redis instances fight over sessions, and scaling cannot "merge" them back.
-- The single Postgres is sized for ~400 users (`shared_buffers=1G`,
-  `max_connections=150`). Real DB HA means either a managed database (below) or
-  Postgres streaming replication - not needed at this size.
+- Postgres sizing is env-driven (`DB_MEM_LIMIT`, `DB_SHARED_BUFFERS`,
+  `DB_MAX_CONNECTIONS`, ... in `.env`, see [SCALING.md](SCALING.md)). Small-host
+  default: `DB_MEM_LIMIT=2G`, `shared_buffers=512M`, `max_connections=60`;
+  standard preset: `4G`, `1G`, `150`. Real DB HA means either a managed database
+  (below) or Postgres streaming replication - not needed at this size.
 
 ## Backups
 

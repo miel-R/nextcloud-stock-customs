@@ -163,4 +163,4 @@ keep one control plane and an option to use Tunnel later without moving domains.
 
 - **Orange cloud (proxy on):** free tier buffers responses and caps non-chunked uploads ~100MB. Safe for Nextcloud if desktop/mobile chunking is used,but verify a large web upload first.
 - **Grey cloud (DNS-only):** Cloudflare just resolves the name; your Caddy still does TLS. Best for large uploads. Recommended unless you specifically need the WAF/tunnel.
-- To serve big files through the orange cloud reliably, keep the upload limit at 10G only if chunking holds; otherwise consider lowering `upload_max_filesize` (see `config/php-custom.ini`) or enforcing chunked uploads in Nextcloud settings.
+- To serve big files through the orange cloud reliably, keep the upload ceiling at `UPLOAD_MAX_SIZE` (default `2G`, matches `config/php-custom.ini`) only if chunking holds; otherwise lower it in both places or enforce chunked uploads in Nextcloud settings.
