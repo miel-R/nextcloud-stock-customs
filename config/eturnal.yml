@@ -18,6 +18,14 @@ eturnal:
   log_dir: stdout
   log_level: info
 
+  # Relay (media) port range used by eturnal per-session. Keep this in sync
+  # with the range published by compose.turn.yaml (TURN_RELAY_PORTS, default
+  # 48000-48200). These host ports must be open in the firewall for clients to
+  # relay through TURN. The main compose.yaml does NOT publish this range - it
+  # is only started via `docker compose -f compose.yaml -f compose.turn.yaml`.
+  relay_min_port: 48000
+  relay_max_port: 48200
+
   # The relay address is auto-detected via STUN at startup. If the host is
   # behind CGNAT/port-forwarding, set ETURNAL_RELAY_IPV4_ADDR in the `turn`
   # service's environment (compose.yaml) to this host's public IPv4 address.

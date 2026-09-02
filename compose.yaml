@@ -172,8 +172,12 @@ services:
     ports:
       - "3478:3478/udp"
       - "3478:3478/tcp"
-      # TURN relay port range (needed for media relaying)
-      - "49152-65535:49152-65535/udp"
+      # NOTE: the TURN relay UDP range (media relaying) is NOT published here.
+      # A 16k-port bind (49152-65535) hangs/lags startup on Docker Desktop and
+      # can take very long on Linux engines too. For real TURN media relaying,
+      # apply the optional override (see SCALING.md / INSTALL.md):
+      #     docker compose -f compose.yaml -f compose.turn.yaml up -d
+      # compose.turn.yaml publishes a small configurable relay range.
     networks:
       - nextcloud-network
     oom_score_adj: 500

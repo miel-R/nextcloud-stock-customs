@@ -34,7 +34,9 @@ So the question is not "reverse proxy or not" - it is **where TLS is terminated*
   works)and is reached by Caddy internally.
 - `.env` uses plain HTTP values (`OVERWRITEPROTOCOL=http`), correct for the funnel;
   switch to `https` for a direct HTTPS entry point.
-- A dedicated `turn` service publishes **3478/tcp + 3478/udp** (plus the TURN relay range 49152-65535/udp); Caddy proxies the `signaling` service's
+- A dedicated `turn` service publishes **3478/tcp + 3478/udp** by default; the TURN relay
+  UDP range is only bound when you apply the optional `compose.turn.yaml` override on a
+  native Linux host (see `INSTALL.md`). Caddy proxies the `signaling` service's
   backend over `/standalone-signaling`.
 
 ## Options and what to change for each

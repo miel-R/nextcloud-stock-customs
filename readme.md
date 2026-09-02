@@ -152,7 +152,7 @@ Notes:
 
 - The `signaling` container (spreed standalone signaling server) listens on **8081** internally; the Caddyfile already proxies `/standalone-signaling` there.
 - The signaling server authenticates through the Nextcloud backend (`BACKEND_BACKEND1_URLS=https://<NC_DOMAIN>` in `compose.yaml`). If you only have HTTP on `:80` (Tailscale Funnel), set `NC_DOMAIN` to a name that resolves publicly to the funnel, or add a TLS listener on `:443` (e.g. `tls internal` in Caddy) and set `SKIP_VERIFY=true` on the signaling service for an internal-only setup.
-- Open/forward UDP **and** TCP 3478 on the firewall for TURN, and let the relay range (49152-65535/udp, already published by `compose.yaml`) through.
+- Open/forward UDP **and** TCP 3478 on the firewall for TURN. The 16k relay range is **not** published by default (it lags startup); if your clients need a real relay, apply the optional `compose.turn.yaml` override on native Linux and forward the small relay range it publishes (see `INSTALL.md`).
 - If the `turn` service auto-detects the wrong relay address, force it by adding `ETURNAL_RELAY_IPV4_ADDR: ${TURN_RELAY_IP:-}` to its environment in `compose.yaml` and setting `TURN_RELAY_IP=<public-ip>` in `.env`.
 
 ## Upgrading

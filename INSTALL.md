@@ -224,7 +224,10 @@ should show **Cron** running "now".
 
 `signaling` and `turn` are already in `compose.yaml` and start with the stack.
 They need the signaling backend reachable at `https://<NC_DOMAIN>` and UDP/TCP
-3478 open to clients. Complete the wiring from the [README Talk section](readme.md):
+3478 open to clients. If your clients need a real TURN **relay** (restrictive
+NAT), also apply the optional override on a native Linux host:
+`docker compose -f compose.yaml -f compose.turn.yaml up -d`.
+Complete the wiring from the [README Talk section](readme.md):
 
 ```bash
 docker exec -u www-data nextcloud-app php occ spreed:signaling:add <NC_DOMAIN> --secret=<SIGNALING_SECRET> --verify=1
@@ -275,6 +278,7 @@ Full reinstall / fresh start uses the same two commands plus the one-time
 | App can't reach `nextcloud-db` / DB errors at boot | Start the database project first: `docker compose -f compose.db.yaml up -d` |
 | "Trusted domain" error | Add the host to `NEXTCLOUD_TRUSTED_DOMAINS` and recreate the app container |
 | App container restarts / OOM | Lower `APP_MAX_WORKERS` and/or `APP_MEM_LIMIT` in `.env` (they must stay in ratio: workers x ~150 MB < limit), or raise the host RAM |
+| `nextcloud-turn` never starts / machine lags on `up` | The 16k UDP relay range (`49152-65535`) is no longer in the main compose file - it hangs on Docker Desktop and is slow on Linux. Use the small optional override only on native Linux when you need TURN relay: `docker compose -f compose.yaml -f compose.turn.yaml up -d` |
 | Talk no audio / no signaling | Verify `spreed:signaling:list` / `spreed:turn:list`; 3478 UDP/TCP reachable; host RAM (see small-host profile in [SCALING.md](SCALING.md)) |
 | Host OOM-kills containers despite limits | Add swap (`fallocate -l 8G /swapfile` on Ubuntu); aux services carry `oom_score_adj: 500` so the app/Talk tier dies last |
 | Uploads stuck at 512 MB | Keep `upload_max_filesize`/`post_max_size` in `config/php-custom.ini` in sync with `UPLOAD_MAX_SIZE` in `.env` (both default `2G`) and recreate the app container |

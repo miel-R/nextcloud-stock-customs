@@ -1,0 +1,23 @@
+# ============================================================================
+# OPTIONAL override: publish the TURN relay port range for real media relaying.
+#
+# The main compose.yaml intentionally does NOT bind the relay UDP range: a
+# 16k-port bind (49152-65535) hangs/lags startup on Docker Desktop and can take
+# very long on other engines. If your Talk clients sit behind a restrictive NAT
+# that truly needs a TURN relay (not just the signaling server), apply this on
+# a native Linux Docker Engine host:
+#
+#     docker compose -f compose.yaml -f compose.turn.yaml up -d
+#
+# Keep the published range SMALL and aligned with config/eturnal.yml's relay
+# range (relay_min_port / relay_max_port). Only the ports you publish here and
+# open in the firewall are usable by clients. Tune with TURN_RELAY_PORTS.
+# ============================================================================
+
+services:
+  turn:
+    ports:
+      # Small, configurable UDP relay range (default 200 ports).
+      # On Docker Desktop set TURN_RELAY_PORTS= (empty) to skip relay port
+      # publication locally and rely on the shorter 3478 bind from compose.yaml.
+      - "${TURN_RELAY_PORTS:-48000-48200}:${TURN_RELAY_PORTS:-48000-48200}/udp"
