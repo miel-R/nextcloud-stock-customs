@@ -42,13 +42,13 @@ services:
     # Memory/work knobs are passed on the command line so they can be set from
     # .env; the mounted postgresql.conf keeps the WAL + planner tuning.
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
-      -c shared_buffers=${DB_SHARED_BUFFERS:-512M}
-      -c effective_cache_size=${DB_EFFECTIVE_CACHE_SIZE:-1G}
+      -c shared_buffers=${DB_SHARED_BUFFERS:-512MB}
+      -c effective_cache_size=${DB_EFFECTIVE_CACHE_SIZE:-1GB}
       -c work_mem=${DB_WORK_MEM:-8MB}
       -c maintenance_work_mem=${DB_MAINT_WORK_MEM:-128MB}
       -c max_connections=${DB_MAX_CONNECTIONS:-60}
-      -c max_wal_size=${DB_MAX_WAL_SIZE:-1G}
-      -c min_wal_size=${DB_MIN_WAL_SIZE:-512M}
+      -c max_wal_size=${DB_MAX_WAL_SIZE:-1GB}
+      -c min_wal_size=${DB_MIN_WAL_SIZE:-512MB}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nextcloud} -d ${POSTGRES_DB:-nextcloud}"]
       interval: 10s
