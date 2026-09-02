@@ -1,0 +1,23 @@
+# eturnal STUN/TURN server configuration (read-only mount into the `turn`
+# container: ./config/eturnal.yml -> /etc/eturnal.yml).
+#
+# This only configures the listeners; the shared secret comes from the
+# ETURNAL_SECRET environment variable in compose.yaml, which reads
+# .env -> TURN_SECRET. See https://eturnal.net/doc/ for all options.
+
+eturnal:
+  # STUN/TURN (non-TLS) on the standard port
+  listen:
+    - ip: "::"
+      port: 3478
+      transport: udp
+    - ip: "::"
+      port: 3478
+      transport: tcp
+
+  log_dir: stdout
+  log_level: info
+
+  # The relay address is auto-detected via STUN at startup. If the host is
+  # behind CGNAT/port-forwarding, set ETURNAL_RELAY_IPV4_ADDR in the `turn`
+  # service's environment (compose.yaml) to this host's public IPv4 address.

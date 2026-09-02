@@ -6,7 +6,8 @@ name: nextcloud-stack
 # Services (stateless web tier):
 #   nextcloud-app     Nextcloud Apache + PHP (scalable: --scale)
 #   nextcloud-cron    Background jobs (official /cron.sh)
-#   talk              Nextcloud Talk signaling + TURN (optional)
+#   signaling        Standalone Talk signaling server (stock, optional)
+#   turn             STUN/TURN relay for Talk (stock, optional)
 #   caddy             Reverse proxy (HTTP :80 here; TLS via Tailscale funnel)
 #
 # Stateful services (PostgreSQL + Redis) live in a SEPARATE project so the app
@@ -102,28 +103,35 @@ services:
           cpus: "0.5"
 
   # ------------------------------------------------------------
-  # 3. NEXTCLOUD TALK (Signaling & TURN) - optional; see INSTALL.md
+  # 3. NEXTCLOUD TALK - optional; see readme.md
+  #    Stock containers only (no AIO images):
+  #    - signaling: standalone Talk signaling server
+  #      https://github.com/strukturag/nextcloud-spreed-signaling
+  #    - turn:      STUN/TURN relay for clients behind restrictive NATs
+  #      https://github.com/processone/eturnal
   # ------------------------------------------------------------
-  talk:
-    image: nextcloud/aio-talk:latest
-    container_name: nextcloud-talk
+  signaling:
+    image: strukturag/nextcloud-spreed-signaling:2.1.1
+    container_name: nextcloud-signaling
     restart: unless-stopped
     environment:
-      NC_DOMAIN: ${NC_DOMAIN:?err}
-      TALK_HOST: ${NC_DOMAIN:?err}
-      TALK_PORT: 3478
-      TURN_SECRET: ${TURN_SECRET:?err}
-      SIGNALING_SECRET: ${SIGNALING_SECRET:?err}
-      INTERNAL_SECRET: ${INTERNAL_SECRET:?err}
-    volumes:
-      - nextcloud:/var/www/html:ro
+      # Internal HTTP listener - Caddy proxies /standalone-signaling here
+      # (the frontend still sees only https://<NC_DOMAIN>/standalone-signaling).
+      HTTP_LISTEN: 0.0.0.0:8081
+      # Session keys - random hex strings (sizes in .env.example)
+      HASH_KEY: ${HASH_KEY:?err}
+      BLOCK_KEY: ${BLOCK_KEY:?err}
+      # Shared secrets used to authenticate with the Nextcloud backend
+      INTERNAL_SHARED_SECRET_KEY: ${INTERNAL_SECRET:?err}
+      BACKENDS: backend1
+      BACKEND_BACKEND1_URLS: https://${NC_DOMAIN:?err}
+      BACKEND_BACKEND1_SHARED_SECRET: ${SIGNALING_SECRET:?err}
+      # Only set to "true" for internal-only HTTP/TLS-less setups (see readme.md)
+      SKIP_VERIFY: ${SKIP_VERIFY:-false}
     depends_on:
       - nextcloud-app
     networks:
       - nextcloud-network
-    ports:
-      - "3478:3478/udp"
-      - "3478:3478/tcp"
     deploy:
       resources:
         limits:
@@ -131,6 +139,39 @@ services:
           cpus: "1"
         reservations:
           memory: 512M
+          cpus: "0.5"
+
+  turn:
+    image: eturnal/eturnal:1.12.2
+    container_name: nextcloud-turn
+    restart: unless-stopped
+    volumes:
+      - ./config/eturnal.yml:/etc/eturnal.yml:ro
+    user: "9000:9000"
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      # Shared TURN secret - must match `occ spreed:turn:add ... --secret=`
+      ETURNAL_SECRET: ${TURN_SECRET:?err}
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      # TURN relay port range (needed for media relaying)
+      - "49152-65535:49152-65535/udp"
+    networks:
+      - nextcloud-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1"
+        reservations:
+          memory: 256M
           cpus: "0.5"
 
   # ------------------------------------------------------------

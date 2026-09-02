@@ -3,110 +3,41 @@
   - SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 
-# Agent Guidelines for Nextcloud All-in-one
+# Agent Guidelines for nextcloud-stock-customs
 
 This file provides instructions for AI coding agents (Claude Code, GitHub Copilot, Cursor, Windsurf, and others) operating on this repository. Read it before generating any code, commits, or pull requests.
 
 ---
 
-## Nextcloud Contribution Policy
-
-All contributions generated or assisted by this agent must fully comply with:
-
-- **[AI Contribution Policy](https://github.com/nextcloud/.github/blob/master/AI_POLICY.md)** - the primary reference for AI-specific rules, covering disclosure, author accountability, communication, security, licensing, code quality, and autonomous agent behavior.
-- **[Contribution Guidelines](https://github.com/nextcloud/all-in-one/blob/master/CONTRIBUTING.md)** - covering testing requirements, the Developer Certificate of Origin (DCO), license headers, conventional commits, and translations. These apply in full to all contributions regardless of how they were produced.
-
-### What this agent must always do
+## General rules
 
 - Add an `Assisted-by: AGENT_NAME:MODEL_VERSION` git trailer to every commit containing AI-assisted content.
-- Ensure every pull request includes a disclosure of AI tool use in the PR description.
-- Produce focused, scoped pull requests that address exactly one concern. Do not touch unrelated files or introduce incidental refactors.
-- Verify all dependencies against actual package registries before suggesting them. Do not use hallucinated or unverified package names.
-- Explicitly inform the contributor when any action they are about to take, or have taken, would violate the AI Contribution Policy or the Contribution Guidelines. Do not silently proceed. State which rule is at risk and what the contributor should do instead.
-- Warn the contributor if a pull request is growing too large. A PR approaching several thousand lines of changed code is a signal that it should be split into smaller, focused PRs. Suggest a logical split before the PR is opened, not after.
-- Recommend opening a ticket for discussion before starting implementation whenever a feature or change is sufficiently complex - for example when it touches multiple subsystems, requires architectural decisions, or the right approach is not yet clear. A ticket allows maintainers and the contributor to align on direction before code is written, avoiding wasted effort on a PR that may be rejected or require fundamental rework.
+- Use [Conventional Commits](https://www.conventionalcommits.org) for all commit messages:
 
-### What this agent must never do
+  ```
+  <type>(<scope>): <short description>
 
-- Open issues, submit pull requests, post review comments, or send security reports autonomously. Every contribution must be reviewed and submitted by a human.
-- Add `Signed-off-by` tags to commits. Only the human contributor can certify the Developer Certificate of Origin.
-- Generate or submit security reports without independent human verification. Report verified vulnerabilities via [HackerOne](https://hackerone.com/nextcloud), not as GitHub issues.
-- Write PR descriptions, review comments, or issue reports on behalf of the contributor. These must be in the contributor's own words.
-- Submit code that has not been reviewed and cleaned up by the contributor. Dead code, redundant logic, excessive comments, and unrelated changes must be removed before submission.
+  [optional body]
 
----
+  Assisted-by: AGENT_NAME:MODEL_VERSION
+  ```
 
-## Repository-Specific Requirements
+- Produce focused, scoped changes that address exactly one concern. Do not touch unrelated files or introduce incidental refactors.
+- Verify all dependencies (image names, tags, package names) against the actual registries before using them. Do not use hallucinated or unverified names.
+- Never add `Signed-off-by` tags to commits. Only the human contributor can certify the Developer Certificate of Origin.
+- Do not open issues, submit pull requests, post review comments, or send security reports autonomously. Every contribution must be reviewed and submitted by a human.
 
-### Commit format
+## Repository scope
 
-Use [Conventional Commits](https://www.conventionalcommits.org) for all commit messages:
+This repository is a **stock Nextcloud Docker stack** (`nextcloud:stable` behind Caddy, with PostgreSQL + Redis and optional Talk). It is NOT Nextcloud AIO:
 
-```
-<type>(<scope>): <short description>
+- It deliberately uses only stock/upstream images (e.g. `nextcloud:stable`, `postgres:16-alpine`, `strukturag/nextcloud-spreed-signaling`, `eturnal/eturnal`).
+- There is no AIO mastercontainer, no AIO image (`nextcloud/aio-*`), and no AIO-specific setup docs.
+- Keep it that way: do not reintroduce AIO images, AIO docs, or AIO-specific patterns (e.g. `Containers/<name>` builds, `AIO_*` env vars, `nextcloud-aio-*` container names).
 
-[optional body]
+## Validation before submitting
 
-Assisted-by: AGENT_NAME:MODEL_VERSION
-```
-
-Common types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `build`, `ci`.  
-The scope should match the affected component (e.g. `AIO-interface`, `Fulltextsearch`, `Database`, `Apache`, `Mastercontainer`, `App`, `community-containers` or else).
-
-Example:
-```
-feat(AIO-interface): allow to prune the docker system via a button
-
-Assisted-by: ClaudeCode:claude-sonnet-4-6
-```
-
-### Tests
-
-- Every changed or added code segment must be covered by unit tests. Pull requests without tests for new or modified logic will not be accepted.
-- In areas where unit testing is currently difficult, refactoring to enable testability is encouraged alongside the bug fix.
-- New features must be manually tested on a live Nextcloud instance by the human contributor before submission. Providing test steps for an agent to execute is not a substitute.
-
-### Developer Certificate of Origin (DCO)
-
-The project uses the DCO as an additional safeguard. Only the human contributor may add the `Signed-off-by` trailer - agents must not add it:
-
-```
-Signed-off-by: Random J Developer <random@developer.example.org>
-```
-
-Contributors can sign automatically with `git commit -s` after configuring `user.name` and `user.email`.
-
-### License headers
-
-Every new file must include the correct SPDX license header. For AGPL-3.0-or-later (the default for this repository):
-
-```php
-/**
- * SPDX-FileCopyrightText: <year> <name>
- * SPDX-License-Identifier: AGPL-3.0-or-later
- */
-```
-
-See [HowToApplyALicense.md](https://github.com/nextcloud/server/blob/master/contribute/HowToApplyALicense.md) for details on per-language formats. AI-generated code must not include material from sources incompatible with AGPL-3.0-or-later.
-
-### Security
-
-- Do not open GitHub issues for potential vulnerabilities. Report them via [HackerOne](https://hackerone.com/nextcloud) following the [security policy](https://nextcloud.com/security/).
-- AI-generated security reports must be independently verified by the human contributor before submission.
-- Manually verify all access control logic, authentication patterns, and dependency names - AI tools are known to hallucinate package names and reproduce vulnerable patterns.
-
-### Scope of this repository
-
-This repository covers the Nextcloud all-in-one and all its included containers and features. Issues and changes for other components belong in their respective repositories under the [Nextcloud GitHub organization](https://github.com/nextcloud/).
-
----
-
-## Further Reading
-
-- [Local CONTRIBUTING.md](CONTRIBUTING.md)
-- [Nextcloud Contribution Guidelines](https://github.com/nextcloud/all-in-one/blob/main/CONTRIBUTING.md)
-- [AI Contribution Policy](https://github.com/nextcloud/.github/blob/master/AI_POLICY.md)
-- [Developer Certificate of Origin](https://github.com/nextcloud/server/blob/master/contribute/developer-certificate-of-origin)
-- [How to Apply a License](https://github.com/nextcloud/server/blob/master/contribute/HowToApplyALicense.md)
-- [Developer Manual](https://github.com/nextcloud/all-in-one/blob/main/develop.md)
-- [Security Vulnerability Reporting (HackerOne)](https://hackerone.com/nextcloud)
+- Run `docker compose config -q` after any compose change.
+- When possible, validate changes against a live stack and document the commands used.
+- Keep documentation in sync with the actual compose files. If you touch `compose.yaml`, update `readme.md`, `INSTALL.md`, `NETWORKING.md`, `DATABASE.md` and `.env.example` as needed.
+- Standard image updates belong in `compose.yaml` and the docs as plain tag bumps - do not invent custom build pipelines.

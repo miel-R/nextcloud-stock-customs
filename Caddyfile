@@ -7,8 +7,10 @@
 #   scaled with `docker compose up -d --scale nextcloud-app=N`, Docker's
 #   embedded DNS round-robins that name across all replicas, so Caddy
 #   load-balances automatically - no changes needed here.
-# - The Talk signaling server inside nextcloud/aio-talk listens on 8081, which
-#   is why /standalone-signaling is proxied to nextcloud-talk:8081 (NOT 8080).
+# - The Talk signaling server inside the `signaling` service (stock
+#   strukturag/nextcloud-spreed-signaling image) listens on 8081 internally,
+#   which is why /standalone-signaling is proxied to nextcloud-signaling:8081
+#   (NOT 8080).
 
 {
     admin off
@@ -29,7 +31,7 @@
 
     # Talk signaling server
     handle_path /standalone-signaling/* {
-        reverse_proxy nextcloud-talk:8081
+        reverse_proxy nextcloud-signaling:8081
     }
 
     # Everything else -> Nextcloud (load-balanced across app replicas)

@@ -34,8 +34,8 @@ So the question is not "reverse proxy or not" - it is **where TLS is terminated*
   works)and is reached by Caddy internally.
 - `.env` uses plain HTTP values (`OVERWRITEPROTOCOL=http`), correct for the funnel;
   switch to `https` for a direct HTTPS entry point.
-- A dedicated `talk` service publishes **3478/tcp + 3478/udp** and proxies its
-  signaling backend over `/standalone-signaling`.
+- A dedicated `turn` service publishes **3478/tcp + 3478/udp** (plus the TURN relay range 49152-65535/udp); Caddy proxies the `signaling` service's
+  backend over `/standalone-signaling`.
 
 ## Options and what to change for each
 
@@ -73,7 +73,7 @@ What to change:
       reverse_proxy nextcloud-app:80 {
           transport http { response_header_timeout 1h }
       }
-      handle_path /standalone-signaling/* { reverse_proxy nextcloud-talk:8081 }
+      handle_path /standalone-signaling/* { reverse_proxy nextcloud-signaling:8081 }
   }
   ```
 - `compose.yaml` - publish 443 on caddy:

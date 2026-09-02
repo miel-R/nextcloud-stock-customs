@@ -7,7 +7,7 @@
 
 A stock Nextcloud Docker stack sized for ~400 users: `nextcloud:stable` (Apache + PHP) behind a Caddy reverse proxy, with PostgreSQL 16, Redis (sessions/cache/locking), a dedicated cron container and optional Nextcloud Talk.
 
-No AIO mastercontainer, no 100-user limit - you own the scaling and the upgrades.
+Stock Nextcloud Docker images only - no mastercontainer, no 100-user limit: you own the scaling and the upgrades.
 
 ## Contents
 
@@ -32,7 +32,8 @@ No AIO mastercontainer, no 100-user limit - you own the scaling and the upgrades
 | `nextcloud-redis` | `redis:alpine` | PHP sessions, distributed cache, file locking - standalone project |
 | `nextcloud-app` | `nextcloud:stable` | Nextcloud Apache + PHP (scalable, no host ports) |
 | `nextcloud-cron` | `nextcloud:stable` | Background jobs via the official `/cron.sh` |
-| `talk` | `nextcloud/aio-talk:latest` | Optional Talk signaling + TURN (needs www + secrets) |
+| `signaling` | `strukturag/nextcloud-spreed-signaling:2.1.1` | Optional Talk standalone signaling server (backend-authorised, no webroot mount) |
+| `turn` | `eturnal/eturnal:1.12.2` | Optional STUN/TURN relay for Talk clients behind restrictive NATs |
 | `caddy` | `caddy:alpine` | Reverse proxy on `:80` (TLS terminated upstream) |
 
 Everything connects over the external Docker network `nextcloud-network`:
@@ -69,7 +70,8 @@ curl -fsS http://localhost/status.php
 
 First boot creates the admin account and the database automatically. Log in at `http://<host>` (or your public `NC_DOMAIN`).
 
-Talk secrets: `openssl rand -base64 32`.
+Talk secrets: `openssl rand -base64 32` for `TURN_SECRET` / `SIGNALING_SECRET` / `INTERNAL_SECRET`,
+`openssl rand -hex 16` for `BLOCK_KEY`, `openssl rand -hex 32` for `HASH_KEY`.
 
 ## Configuration
 
@@ -134,7 +136,7 @@ See [BACKUP.md](BACKUP.md). Minimum viable setup on the host (daily cron):
 
 ## Talk
 
-`talk` is optional and needs the public domain to serve the signaling backend:
+`signaling` and `turn` are optional and need the public domain to serve the signaling backend:
 
 ```bash
 # app: enable the app
@@ -148,9 +150,10 @@ docker exec -u www-data nextcloud-app php occ spreed:turn:add tcp <NC_DOMAIN>:34
 
 Notes:
 
-- The AIO Talk container's signaling server listens on **8081** internally; the Caddyfile already proxies `/standalone-signaling` there.
-- Its signaling backend calls `https://<NC_DOMAIN>`. If you only have HTTP on `:80` (Tailscale Funnel), set `NC_DOMAIN` to a name that resolves publicly to the funnel, or add a TLS listener on `:443` (e.g. `tls internal` in Caddy) and set `SKIP_CERT_VERIFY=true` on the talk container for an internal-only setup.
-- Open/forward UDP **and** TCP 3478 on the firewall for TURN.
+- The `signaling` container (spreed standalone signaling server) listens on **8081** internally; the Caddyfile already proxies `/standalone-signaling` there.
+- The signaling server authenticates through the Nextcloud backend (`BACKEND_BACKEND1_URLS=https://<NC_DOMAIN>` in `compose.yaml`). If you only have HTTP on `:80` (Tailscale Funnel), set `NC_DOMAIN` to a name that resolves publicly to the funnel, or add a TLS listener on `:443` (e.g. `tls internal` in Caddy) and set `SKIP_VERIFY=true` on the signaling service for an internal-only setup.
+- Open/forward UDP **and** TCP 3478 on the firewall for TURN, and let the relay range (49152-65535/udp, already published by `compose.yaml`) through.
+- If the `turn` service auto-detects the wrong relay address, force it by adding `ETURNAL_RELAY_IPV4_ADDR: ${TURN_RELAY_IP:-}` to its environment in `compose.yaml` and setting `TURN_RELAY_IP=<public-ip>` in `.env`.
 
 ## Upgrading
 
@@ -177,5 +180,6 @@ docker exec -u www-data nextcloud-app php occ maintenance:mode --off
 ## Related
 
 - Upstream image: [nextcloud docker](https://hub.docker.com/_/nextcloud)
-- AIO project: [nextcloud/all-in-one](https://github.com/nextcloud/all-in-one)
+- Talk standalone signaling server: [nextcloud-spreed-signaling](https://github.com/strukturag/nextcloud-spreed-signaling)
+- STUN/TURN server: [eturnal](https://github.com/processone/eturnal)
 - Amiteller Help Desk bot: [ami-nextcloud-talk](https://github.com/miel-R/ami-nextcloud-talk) (optional companion repo)

@@ -22,7 +22,7 @@ name `nextcloud-database`) so the web tier can scale up and down freely.
 | Project | File | Project name | Services | Owns volume |
 | --- | --- | --- | --- | --- |
 | Database | `compose.db.yaml` | `nextcloud-database` | `nextcloud-db`, `nextcloud-redis` | `nextcloud_db` |
-| Web tier | `compose.yaml` | `nextcloud-stack` | `nextcloud-app`, `nextcloud-cron`, `talk`, `caddy` | `nextcloud_www`, `caddy_*` |
+| Web tier | `compose.yaml` | `nextcloud-stack` | `nextcloud-app`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | `nextcloud_www`, `caddy_*` |
 
 Both projects join the same external network `nextcloud-network`; the app
 reaches the database via `POSTGRES_HOST=nextcloud-db` and Redis via

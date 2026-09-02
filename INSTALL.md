@@ -117,7 +117,7 @@ See [SCALING.md](SCALING.md) for the full story.
 
 ## 8. Optional: Talk
 
-Follow the Talk section of the [README](readme.md). It needs the signaling backend reachable over `https://<NC_DOMAIN>` and UDP/TCP 3478 open.
+Follow the Talk section of the [README](readme.md). It needs the `signaling` and `turn` services (already in `compose.yaml`), the signaling backend reachable over `https://<NC_DOMAIN>` and UDP/TCP 3478 open.
 
 ## 9. Backups
 
