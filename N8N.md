@@ -3,9 +3,9 @@
 How to run an **n8n** automation instance next to the Nextcloud stack, using
 the **same PostgreSQL server** as Nextcloud — no second Postgres.
 
-> n8n here is **optional**. Everything below is additive: uncomment one service
-> in `compose.db.yaml`, set **three** extra env vars, and the n8n database is
-> provisioned for you on first DB init.
+> n8n here is **optional**. Everything below is additive: the `n8n` service is
+> already in `compose.db.yaml` — you only need to set **three** env vars, and
+> the n8n database is provisioned for you on first DB init.
 
 ---
 
@@ -101,10 +101,9 @@ docker compose -f compose.db.yaml exec nextcloud-db \
 
 ---
 
-## 2. Enable the n8n service
+## 2. The n8n service (already in compose.db.yaml)
 
-Open `compose.db.yaml` and **uncomment** the `n8n` service block near the bottom
-(behind the `# N8N (optional - COMMENTED OUT)` banner). It looks like:
+The `n8n` service is already defined in `compose.db.yaml` (enabled by default):
 
 ```yaml
   n8n:
@@ -145,6 +144,10 @@ Start it (the database project must already be up):
 docker compose -f compose.db.yaml up -d n8n
 ```
 
+> The `${N8N_DB_PASSWORD:?...}` guard makes `docker compose ... config` fail
+> until you set `N8N_DB_PASSWORD` in `.env` — this is intentional so n8n never
+> starts without its password.
+
 ---
 
 ## 3. Verify
@@ -163,7 +166,105 @@ public Funnel) to finish the n8n setup wizard.
 
 ---
 
-## 4. Security & operations notes
+## 4. Deploy both Nextcloud and n8n — full runbook (from scratch on Ubuntu)
+
+Applies to a **clean host** (or a host where you do not mind the Postgres
+volume being recreated). If the `nextcloud_db` volume already exists, follow
+step 1's manual provisioning instead of the automatic init-script path.
+
+### 4.1 Clone both repos
+
+```bash
+git clone https://github.com/miel-R/nextcloud-stock-customs.git
+git clone https://github.com/miel-R/ami-nextcloud-talk.git   # optional Talk bot
+
+cd nextcloud-stock-customs
+cp .env.example .env
+nano .env        # set POSTGRES_PASSWORD, NEXTCLOUD_ADMIN_*, NC_DOMAIN, OVERWRITE*,
+                 # NEXTCLOUD_TRUSTED_DOMAINS, TRUSTED_PROXIES, Talk secrets,
+                 # and the n8n block: N8N_DB_PASSWORD
+```
+
+> `N8N_DB_PASSWORD` at the very least must be a real random value
+> (`openssl rand -base64 24`). See the stock `INSTALL.md` step 5 for the
+> domain/secret rules (no trailing slash, no placeholder).
+
+### 4.2 Free port 80 (if needed) and create the network
+
+```bash
+sudo ss -tlnp | grep :80          # is a system web server (apache2/nginx) holding :80?
+sudo systemctl stop apache2 && sudo systemctl disable apache2 && sudo pkill -f apache2
+docker network create nextcloud-network    # once
+```
+
+### 4.3 Validate config before starting
+
+```bash
+docker compose -f compose.db.yaml config -q   # must succeed now (N8N_DB_PASSWORD set)
+docker compose -f compose.db.yaml config -q n8n
+```
+
+### 4.4 Start the database project (Postgres + Redis). n8n is here too.
+
+On a **fresh** volume, `config/init-n8n.sh` runs during this first boot and
+creates the `n8n` role + database automatically:
+
+```bash
+docker compose -f compose.db.yaml up -d
+```
+
+> If the init script ran, the n8n role/database already exist; skip the manual
+> CREATE below. Confirm with:
+> ```bash
+> docker compose -f compose.db.yaml exec nextcloud-db \
+>   psql -U nextcloud -d nextcloud -tAc "SELECT 1 FROM pg_roles WHERE rolname='n8n'"
+> docker compose -f compose.db.yaml exec nextcloud-db \
+>   psql -U nextcloud -d nextcloud -tAc "SELECT 1 FROM pg_database WHERE datname='n8n'"
+> # each prints "1" (exists)
+> ```
+
+**Existing volume** — the init script will *not* run again, so create the n8n
+role + database manually (same commands as step 1):
+
+```bash
+docker compose -f compose.db.yaml exec nextcloud-db \
+  psql -U nextcloud -d nextcloud -c "CREATE ROLE n8n LOGIN PASSWORD '<N8N_DB_PASSWORD>'"
+docker compose -f compose.db.yaml exec nextcloud-db \
+  psql -U nextcloud -d nextcloud -c "CREATE DATABASE n8n OWNER n8n"
+```
+
+### 4.5 Start the web tier
+
+```bash
+docker compose up -d --remove-orphans
+```
+
+Finish the Nextcloud web installer at `https://<NC_DOMAIN>/` (hard refresh) —
+this sets `installed: true`. Register Talk HPB/TURN per stock `INSTALL.md`
+step 11 if you use it.
+
+### 4.6 Start n8n and finish its setup wizard
+
+```bash
+docker compose -f compose.db.yaml up -d n8n
+docker compose -f compose.db.yaml ps n8n           # 127.0.0.1:5678->5678/tcp
+docker compose -f compose.db.yaml logs n8n --tail 20
+```
+
+From a **Tailnet client**, open `http://<host>:5678` and complete the n8n
+first-run wizard. Because n8n uses the shared `nextcloud-db`, its data persists
+in the same Postgres.
+
+### 4.7 Result
+
+- Nextcloud on the **Funnel domain** (`https://<NC_DOMAIN>/`).
+- n8n on **loopback / tailnet only** (`http://<host>:5678`), sharing Postgres.
+- Optional Ami bot on the same `nextcloud-network` (see `ami-nextcloud-talk`
+  `INSTALL.md`).
+
+---
+
+## 5. Security & operations notes
 
 - **Loopback only by design.** If you later want remote access, either expose it
   to the tailnet (preferred: reach it at `http://<host>:5678` from a Tailnet
@@ -179,7 +280,7 @@ public Funnel) to finish the n8n setup wizard.
 
 ---
 
-## 5. Troubleshooting
+## 6. Troubleshooting
 
 | Symptom | Cause / fix |
 | --- | --- |
