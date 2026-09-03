@@ -105,40 +105,42 @@ services:
           cpus: "${REDIS_CPUS_RES:-0.5}"
 
 # ------------------------------------------------------------
-# N8N (optional). Workflow automation that uses the SAME Postgres instance as
-# Nextcloud (separate n8n database + role) and is reachable on the host
-# loopback only (Tailscale direct / tailnet, NOT the Funnel hostname; n8n
-# subpath hosting is broken in recent n8n - GitHub n8n-io/n8n#19635).
+# N8N (optional - COMMENTED OUT by default). Workflow automation that uses the
+# SAME Postgres instance as Nextcloud (separate n8n database + role) and is
+# reachable on the host loopback only (Tailscale direct / tailnet, NOT the
+# Funnel hostname; n8n subpath hosting is broken in recent n8n - GitHub
+# n8n-io/n8n#19635).
 #
-# Requirees: N8N_DB_PASSWORD set in .env (and config/init-n8n.sh must have run
-# on an empty nextcloud_db volume, or you provision the n8n role/db manually).
+# To enable: uncomment this service AND set N8N_DB_PASSWORD in .env (see the
+# commented line next to POSTGRES_PASSWORD), then:
+#     docker compose -f compose.db.yaml up -d n8n
+# config/init-n8n.sh provisions the n8n role + db on a fresh volume; on an
+# existing volume create them manually (see N8N.md).
 #
-#   docker compose -f compose.db.yaml up -d n8n
-#
-  n8n:
-    image: docker.n8n.io/n8nio/n8n:latest
-    container_name: n8n_email_summarizer
-    restart: unless-stopped
-    # Loopback only - not exposed to the Funnel / internet.
-    ports:
-      - "127.0.0.1:5678:5678"
-    environment:
-      - GENERIC_TIMEZONE=Asia/Manila
-      - NODE_ENV=production
-      # WebSocket push for the editor (newer n8n prefers this over sse).
-      - N8N_PUSH_BACKEND=websocket
-      # --- database: SAME Postgres instance, separate DB/user ---
-      - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=nextcloud-db
-      - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=${N8N_DB_NAME:-n8n}
-      - DB_POSTGRESDB_USER=${N8N_DB_USER:-n8n}
-      - DB_POSTGRESDB_PASSWORD=${N8N_DB_PASSWORD:?set N8N_DB_PASSWORD in .env}
-      - DB_POSTGRESDB_SCHEMA=public
-    volumes:
-      - ./n8n_data:/home/node/.n8n
-    networks:
-      - nextcloud-network
+#  n8n:
+#    image: docker.n8n.io/n8nio/n8n:latest
+#    container_name: n8n_email_summarizer
+#    restart: unless-stopped
+#    # Loopback only - not exposed to the Funnel / internet.
+#    ports:
+#      - "127.0.0.1:5678:5678"
+#    environment:
+#      - GENERIC_TIMEZONE=Asia/Manila
+#      - NODE_ENV=production
+#      # WebSocket push for the editor (newer n8n prefers this over sse).
+#      - N8N_PUSH_BACKEND=websocket
+#      # --- database: SAME Postgres instance, separate DB/user ---
+#      - DB_TYPE=postgresdb
+#      - DB_POSTGRESDB_HOST=nextcloud-db
+#      - DB_POSTGRESDB_PORT=5432
+#      - DB_POSTGRESDB_DATABASE=${N8N_DB_NAME:-n8n}
+#      - DB_POSTGRESDB_USER=${N8N_DB_USER:-n8n}
+#      - DB_POSTGRESDB_PASSWORD=${N8N_DB_PASSWORD:?set N8N_DB_PASSWORD in .env}
+#      - DB_POSTGRESDB_SCHEMA=public
+#    volumes:
+#      - ./n8n_data:/home/node/.n8n
+#    networks:
+#      - nextcloud-network
 
 # ------------------------------------------------------------
 networks:

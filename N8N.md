@@ -62,13 +62,19 @@ the tailnet (e.g. `ssh -L` or a Tailnet client hitting `http://<host>:5678`).
 
 ## 1. Enable the database provisioning (one-time)
 
-Set the three `N8N_DB_*` values in `.env` (from `.env.example`):
+The `N8N_DB_PASSWORD` sits at the **top of `.env`** next to
+`POSTGRES_PASSWORD`, **commented out by default** (a **different** random value
+from `POSTGRES_PASSWORD` - `openssl rand -base64 24`). `N8N_DB_NAME` and
+`N8N_DB_USER` are not required because they default to `n8n`.
 
+```bash
+# .env - uncomment this line when you install n8n:
+# N8N_DB_PASSWORD=<long random>     # openssl rand -base64 24
 ```
-N8N_DB_NAME=n8n
-N8N_DB_USER=n8n
-N8N_DB_PASSWORD=<long random>     # openssl rand -base64 24
-```
+
+When not using n8n, leave it commented **and** leave the n8n service commented
+in `compose.db.yaml` (the default) - the compose `:?` guard requires the
+password only when the n8n service is enabled.
 
 The `nextcloud-db` service in `compose.db.yaml` already mounts
 `config/init-n8n.sh` into `/docker-entrypoint-initdb.d/`. On the **first
@@ -103,7 +109,8 @@ docker compose -f compose.db.yaml exec nextcloud-db \
 
 ## 2. The n8n service (already in compose.db.yaml)
 
-The `n8n` service is already defined in `compose.db.yaml` (enabled by default):
+The `n8n` service is defined (commented out by default) in `compose.db.yaml`.
+Uncomment it, then it looks like:
 
 ```yaml
   n8n:
