@@ -82,7 +82,8 @@ Talk secrets: `openssl rand -base64 32` for `TURN_SECRET` / `SIGNALING_SECRET` /
 | `config/nginx.conf` | Nginx sidecar config: serves static files from the shared `nextcloud` webroot (incl. `.mjs` with the JS MIME type), proxies PHP to `nextcloud-app:9000`, front-controller routes clean URLs to `index.php`, handles `.well-known`/OCS discovery, sets the admin-recommended security headers, `client_max_body_size` = `UPLOAD_MAX_SIZE` |
 | `config/postgres-tuning.conf` | WAL + planner tuning + `listen_addresses='*'` (required so the app can reach Postgres and the image can create the DB); memory knobs live in `.env` (`DB_*`, passed on the DB command line) |
 | `config/pg_hba.conf` | Mounted client-auth rules allowing the `nextcloud-network` subnet (stock default only trusts localhost, which would block the app) |
-| `Caddyfile` | Route to app + Talk signaling (`:80`, gzip, static caching) |
+| `Caddyfile` | Route to app + Talk signaling (`:80`, gzip, static caching); includes an optional host-routed block for proxying n8n on its own hostname |
+| `compose.n8n.yaml` | Optional n8n automation stack (`n8n_stack`, enabled via `N8N_INSTALL` in `.env`) sharing the same Postgres |
 
 > The image's `TRUSTED_PROXIES` handling expects a **space-separated** list and `trusted_domains` also accepts spaces - keep that format in `.env`.
 
@@ -115,8 +116,10 @@ docker compose up -d --scale nextcloud-app=2       # web tier scales separately
 Startup order, backup commands and the migration path to a managed database:
 [DATABASE.md](DATABASE.md).
 
-Run **n8n** on the same Postgres instance (separate database, internal-only)?
-See [N8N.md](N8N.md).
+Run **n8n** on the same Postgres instance (separate `n8n_stack` project, its own
+database, toggle on/off from `.env`)? See [N8N.md](N8N.md).
+- Enable/disable without editing compose: `N8N_INSTALL=true/false` + `COMPOSE_PROFILES` in `.env`.
+- Runs via its own file: `docker compose -f compose.n8n.yaml up -d`.
 
 ## Scaling
 

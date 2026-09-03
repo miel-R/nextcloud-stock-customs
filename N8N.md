@@ -151,15 +151,20 @@ to comment/uncomment compose:
 
 ```bash
 # .env
-N8N_INSTALL=true          # true = run n8n, false = do not
-COMPOSE_PROFILES=n8n       # the mechanism; keep as "n8n"
+COMPOSE_PROFILES=n8n        # "n8n" = run n8n (ON) ; empty = don't (OFF)
+# N8N_INSTALL              # human-readable marker; set true/false to match
 ```
 
-- **`N8N_INSTALL=true`** → the active `COMPOSE_PROFILES=n8n` in `.env` makes
-  `docker compose -f compose.n8n.yaml up -d` start n8n.
-- **`N8N_INSTALL=false`** → set `COMPOSE_PROFILES=` (empty) so the `n8n` profile
-  is off; the service stays defined but the stack starts nothing for it. It does
-  not affect the Nextcloud app or DB stacks.
+> `N8N_INSTALL` is a documentation flag for convenience. The value Compose
+> actually reads is **`COMPOSE_PROFILES`**: set it to `n8n` to enable n8n, leave
+> it empty to disable. In `.env.example` both are kept together (and
+> `.env` ships with `N8N_INSTALL=true` / `COMPOSE_PROFILES=n8n`).
+
+- **ON** — `COMPOSE_PROFILES=n8n` makes `docker compose -f compose.n8n.yaml
+  up -d` start n8n.
+- **OFF** — `COMPOSE_PROFILES=` (empty) leaves the service defined but inactive;
+  the stack starts nothing for it. It does not affect the Nextcloud app or DB
+  stacks.
 - The `n8n` profile only exists in `compose.n8n.yaml`, so `compose.yaml` and
   `compose.db.yaml` are unaffected either way.
 
@@ -169,9 +174,9 @@ COMPOSE_PROFILES=n8n       # the mechanism; keep as "n8n"
 
 No separate n8n password is needed. The `n8n` login role is created with the
 **same password string as `POSTGRES_PASSWORD`** (`config/init-n8n.sh` defaults
-`N8N_DB_PASSWORD` to `POSTGRES_PASSWORD`). `N8N_DB_NAME` and `N8N_DB_USER`
-default to `n8n`; they are listed (commented) in `.env` only if you want to
-override them:
+its password to `POSTGRES_PASSWORD`). `N8N_DB_NAME` and `N8N_DB_USER` default
+to `n8n`; they are listed (commented) in `.env` only if you want to override
+them:
 
 ```bash
 # .env (top of file, next to the database/admin secrets)
@@ -180,10 +185,11 @@ POSTGRES_PASSWORD=<the same value used everywhere>
 # N8N_DB_USER=n8n     # uncomment only to override the role name
 ```
 
-To use a **distinct** credential instead (optional), set `N8N_DB_PASSWORD` on
-the `nextcloud-db` service env in `compose.db.yaml`; if you do, also set
-`DB_POSTGRESDB_PASSWORD=${N8N_DB_PASSWORD}` on the n8n service and keep the two
-in sync.
+> Because the n8n role reuses `POSTGRES_PASSWORD`, there is **no**
+> `N8N_DB_PASSWORD` variable anywhere. If you prefer a distinct credential, set
+> a different password when you create the role (step below) and pass it via
+> `DB_POSTGRESDB_PASSWORD` on the `n8n` service in `compose.n8n.yaml`, keeping
+> the two in sync.
 
 The `nextcloud-db` service in `compose.db.yaml` already mounts
 `config/init-n8n.sh` into `/docker-entrypoint-initdb.d/`. On the **first
@@ -196,23 +202,16 @@ initialization of an empty `nextcloud_db` volume**, that script creates the
 
 ```bash
 docker compose -f compose.db.yaml exec nextcloud-db \
-  psql -U nextcloud -d nextcloud -v N8N_USER="$N8N_DB_USER" -v N8N_PASS="$N8N_DB_PASSWORD" <<'SQL'
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'N8N_USER') THEN
-    EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', :'N8N_USER', :'N8N_PASS');
-  END IF;
-END $$;
-SQL
-docker compose -f compose.db.yaml exec nextcloud-db \
   psql -U nextcloud -d nextcloud -c \
-  "CREATE DATABASE ${N8N_DB_NAME:-n8n} OWNER ${N8N_DB_USER:-n8n};"
+  "CREATE ROLE n8n LOGIN PASSWORD '<POSTGRES_PASSWORD value>'"
+docker compose -f compose.db.yaml exec nextcloud-db \
+  psql -U nextcloud -d nextcloud -c "CREATE DATABASE n8n OWNER n8n"
 ```
 
 > The `nextcloud` DB user is a **superuser** in the stock image, so it can
 > create roles and databases. `config/init-n8n.sh` is idempotent (won't fail if
-> the role/db already exist) and no-ops when `N8N_DB_PASSWORD` is empty, so it
-> is safe to leave mounted even if you never use n8n.
+> the role/db already exist) and always works, so it is safe to leave mounted
+> even if you never use n8n.
 
 ---
 
@@ -304,7 +303,8 @@ git clone https://github.com/miel-R/ami-nextcloud-talk.git   # optional Talk bot
 cd nextcloud-stock-customs
 cp .env.example .env
 nano .env        # set POSTGRES_PASSWORD, NEXTCLOUD_ADMIN_*, NC_DOMAIN, OVERWRITE*,
-                 # NEXTCLOUD_TRUSTED_DOMAINS, TRUSTED_PROXIES, Talk secrets
+                 # NEXTCLOUD_TRUSTED_DOMAINS, TRUSTED_PROXIES, Talk secrets,
+                 # and COMPOSE_PROFILES=n8n (enable n8n - see section 0)
 ```
 
 > `POSTGRES_PASSWORD` is the single secret used everywhere (n8n reuses it).
