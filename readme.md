@@ -115,6 +115,9 @@ docker compose up -d --scale nextcloud-app=2       # web tier scales separately
 Startup order, backup commands and the migration path to a managed database:
 [DATABASE.md](DATABASE.md).
 
+Run **n8n** on the same Postgres instance (separate database, internal-only)?
+See [N8N.md](N8N.md).
+
 ## Scaling
 
 For ~400 users start with `docker compose up -d --scale nextcloud-app=2` (see [SCALING.md](SCALING.md) for sizing).
@@ -183,3 +186,4 @@ docker exec -u www-data nextcloud-app php occ maintenance:mode --off
 - Talk standalone signaling server: [nextcloud-spreed-signaling](https://github.com/strukturag/nextcloud-spreed-signaling)
 - STUN/TURN server: [eturnal](https://github.com/processone/eturnal)
 - Amiteller Help Desk bot: [ami-nextcloud-talk](https://github.com/miel-R/ami-nextcloud-talk) (optional companion repo)
+- Workflow automation sharing the same Postgres: [N8N.md](N8N.md) + [n8n](https://n8n.io)

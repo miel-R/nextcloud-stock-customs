@@ -38,10 +38,17 @@ services:
       # Explicit pg_hba.conf so the app container can connect over the Docker
       # network (stock default only trusts localhost -> "connection refused").
       - ./config/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      # One-time provisioning of shared databases (e.g. n8n) that live in the
+      # SAME Postgres instance. Runs only on first init of an empty data volume.
+      - ./config/init-n8n.sh:/docker-entrypoint-initdb.d/init-n8n.sh:ro
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-nextcloud}
       POSTGRES_USER: ${POSTGRES_USER:-nextcloud}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
+      # Database/role created by init-n8n.sh for n8n (same instance, separate DB).
+      N8N_DB_NAME: ${N8N_DB_NAME:-n8n}
+      N8N_DB_USER: ${N8N_DB_USER:-n8n}
+      N8N_DB_PASSWORD: ${N8N_DB_PASSWORD:-}
     # Memory/work knobs are passed on the command line so they can be set from
     # .env; the mounted postgresql.conf keeps the WAL + planner tuning, and the
     # mounted pg_hba.conf is pointed to via hba_file.
@@ -96,6 +103,48 @@ services:
         reservations:
           memory: ${REDIS_MEM_RES:-256M}
           cpus: "${REDIS_CPUS_RES:-0.5}"
+
+# ------------------------------------------------------------
+# N8N (optional - COMMENTED OUT). Uncomment to add an n8n workflow automation
+# instance that uses the SAME Postgres instance as Nextcloud.
+#
+#   - DB: connects to `nextcloud-db` on this network as the separate `n8n`
+#     database + `n8n` user created by config/init-n8n.sh (see the env vars on
+#     nextcloud-db above; set N8N_DB_PASSWORD in .env).
+#   - Access: binds 127.0.0.1:5678 on the host ONLY - reachable over Tailscale
+#     direct (tailnet), NOT the Funnel hostname. n8n subpath hosting is broken
+#     in recent n8n (GitHub n8n-io/n8n#19635), so do not try to put it behind
+#     the single funnel domain.
+#   - TALK_SERVER_URL-style reverse proxy vars left out: since it is
+#     internal-only you can reach it at http://<host>:5678 over the tailnet.
+#
+#   Start it (after db is up):
+#     docker compose -f compose.db.yaml up -d n8n
+#
+#  n8n:
+#    image: docker.n8n.io/n8nio/n8n:latest
+#    container_name: n8n_email_summarizer
+#    restart: unless-stopped
+#    # Loopback only - not exposed to the Funnel / internet.
+#    ports:
+#      - "127.0.0.1:5678:5678"
+#    environment:
+#      - GENERIC_TIMEZONE=Asia/Manila
+#      - NODE_ENV=production
+#      # WebSocket push for the editor (newer n8n prefers this over sse).
+#      - N8N_PUSH_BACKEND=websocket
+#      # --- database: SAME Postgres instance, separate DB/user ---
+#      - DB_TYPE=postgresdb
+#      - DB_POSTGRESDB_HOST=nextcloud-db
+#      - DB_POSTGRESDB_PORT=5432
+#      - DB_POSTGRESDB_DATABASE=${N8N_DB_NAME:-n8n}
+#      - DB_POSTGRESDB_USER=${N8N_DB_USER:-n8n}
+#      - DB_POSTGRESDB_PASSWORD=${N8N_DB_PASSWORD:?set N8N_DB_PASSWORD in .env}
+#      - DB_POSTGRESDB_SCHEMA=public
+#    volumes:
+#      - ./n8n_data:/home/node/.n8n
+#    networks:
+#      - nextcloud-network
 
 # ------------------------------------------------------------
 networks:
