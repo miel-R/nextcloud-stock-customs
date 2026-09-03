@@ -1,0 +1,78 @@
+name: n8n_stack
+
+# ============================================================================
+# n8n automation - its OWN compose project ("n8n_stack"), sharing the SAME
+# Postgres server as Nextcloud (no second Postgres).
+#
+# WHY a separate project:
+#   - n8n workflows/editor are independent of the Nextcloud app tier; it can be
+#     started/stopped/upgraded on its own.
+#   - it still reaches the single shared Postgres (`nextcloud-db`) over the
+#     external `nextcloud-network` - the n8n database lives in the same
+#     `nextcloud_db` volume (separate database + role, owned independently).
+#   - `docker compose -f compose.db.yaml down` never touches n8n, and vice versa
+#     `docker compose -f compose.n8n.yaml down` never stops the database.
+#
+# Prerequisites:
+#   1) the database project is up:   docker compose -f compose.db.yaml up -d
+#   2) the n8n database + role exist in the shared Postgres
+#      - automatic on a fresh volume (config/init-n8n.sh), OR
+#      - manual on an existing volume (see N8N.md).
+#   3) the external network exists once:  docker network create nextcloud-network
+#
+# Start:
+#     docker compose -f compose.n8n.yaml up -d
+#
+# Open the setup wizard (loopback by default - not reached by the Funnel):
+#     http://localhost:5678
+#
+# Public exposure (optional): rroute n8n through Caddy on the shared
+# nextcloud-network at its OWN hostname (n8n subpath hosting is broken). Set
+# N8N_HOST/N8N_PROTOCOL in .env and proxied N8N_DOMAIN in the Caddyfile; Caddy
+# reaches this container as n8n-n8n-1:5678. See N8N.md ("Self-hosting both on
+# one Funnel domain").
+# ============================================================================
+
+services:
+  n8n:
+    # Compose profile so the service is DEFINED but only runs when the "n8n"
+    # profile is active. Enable with N8N_INSTALL=true in .env, which maps to
+    # COMPOSE_PROFILES=n8n - no need to comment/uncomment this file.
+    profiles: ["n8n"]
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n_email_summarizer
+    restart: unless-stopped
+    # Loopback only by default - NOT exposed to the internet / Funnel. Reach it
+    # on this host, or over the tailnet via this host's tailnet IP.
+    # For public exposure via Caddy, comment the ports: line out so the container
+    # is reachable only on the docker network (nextcloud-network) by Caddy, and
+    # set N8N_HOST/N8N_PROTOCOL below so n8n emits links with the public URL.
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      - GENERIC_TIMEZONE=Asia/Manila
+      - NODE_ENV=production
+      # WebSocket push for the editor (newer n8n prefers this over sse).
+      - N8N_PUSH_BACKEND=websocket
+      # Public URL n8n emits (used when proxied by Caddy). Defaults empty ->
+      # n8n uses the inbound request; set these on a public Caddy setup.
+      - N8N_HOST=${N8N_HOST:-}
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-https}
+      - N8N_PORT=${N8N_PORT:-5678}
+      # --- database: SAME Postgres instance, separate DB/user ---
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=nextcloud-db
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${N8N_DB_NAME:-n8n}
+      - DB_POSTGRESDB_USER=${N8N_DB_USER:-n8n}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:?err}
+      - DB_POSTGRESDB_SCHEMA=public
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+    networks:
+      - nextcloud-network
+
+networks:
+  nextcloud-network:
+    external: true
+    name: nextcloud-network

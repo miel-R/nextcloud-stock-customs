@@ -23,6 +23,9 @@
 .env
 .env.db
 
+# n8n runtime data (workflows/config bind mount) - never commit
+/n8n_data/
+
 
 # local agent sessions
 session-ses_*.md

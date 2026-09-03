@@ -34,6 +34,27 @@
         reverse_proxy nextcloud-signaling:8081
     }
 
+    # n8n on its own hostname (subpath hosting of n8n is broken - n8n-io/n8n#19635).
+    # Keep n8n at its OWN root, routed by Host header, so it shares the same
+    # Caddy/Funnel entry on :443 while Nextcloud stays on the main hostname.
+    # Enable only when you have a resolvable n8n hostname (see N8N.md). Set
+    # N8N_DOMAIN (e.g. n8n.example.com) and uncomment the lines below. Because
+    # this Caddy is HTTP-only (TLS via Tailscale Funnel), the hostname must be
+    # served by the same Funnel route; n8n-n8n-1 is the Compose container name
+    # for the n8n_stack project.
+    #
+    # if N8N_DOMAIN is set, route to n8n:
+    # {@n8n} host {$N8N_DOMAIN}
+    #
+    # handle @n8n {
+    #     reverse_proxy n8n-n8n-1:5678 {
+    #         header_up X-Forwarded-Proto https
+    #         header_up X-Forwarded-Host {host}
+    #         header_up X-Forwarded-For {remote_host}
+    #         header_up Origin {scheme}://{host}
+    #     }
+    # }
+
     # Everything else -> Nginx (serves static, proxies PHP to FPM)
     handle {
         reverse_proxy nextcloud-nginx:80 {

@@ -244,6 +244,10 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"   # Only port 80 (TLS is terminated by Tailscale Funnel upstream)
+    environment:
+      # Hostname routed to n8n (see Caddyfile n8n block + N8N.md). Empty by
+      # default -> n8n stays internal; set when proxying n8n on its own hostname.
+      - N8N_DOMAIN=${N8N_DOMAIN:-}
     volumes:
       - caddy_data:/data
       - caddy_config:/config
