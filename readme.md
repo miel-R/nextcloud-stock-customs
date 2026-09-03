@@ -79,7 +79,7 @@ Talk secrets: `openssl rand -base64 32` for `TURN_SECRET` / `SIGNALING_SECRET` /
 | `.env` | Passwords, domain, trusted proxies, Talk secrets (gitignored) |
 | `config/php-custom.ini` | Mounted as `zz-custom.ini` so it overrides the image defaults (2G uploads, 128M opcache, APCu) - keep uploads in sync with `UPLOAD_MAX_SIZE` |
 | `config/fpm-entrypoint.sh` | Renders the PHP-FPM pool (`zz-pool.conf`) from env at startup; auto-derives `pm.max_children` from `APP_MEM_LIMIT` at ~150 MB/child unless `APP_FPM_MAX_CHILDREN` is set |
-| `config/nginx.conf` | Nginx sidecar config: serves static files from the shared `nextcloud` webroot, proxies PHP to `nextcloud-app:9000`, `client_max_body_size` = `UPLOAD_MAX_SIZE` |
+| `config/nginx.conf` | Nginx sidecar config: serves static files from the shared `nextcloud` webroot (incl. `.mjs` with the JS MIME type), proxies PHP to `nextcloud-app:9000`, front-controller routes clean URLs to `index.php`, handles `.well-known`/OCS discovery, sets the admin-recommended security headers, `client_max_body_size` = `UPLOAD_MAX_SIZE` |
 | `config/postgres-tuning.conf` | WAL + planner tuning + `listen_addresses='*'` (required so the app can reach Postgres and the image can create the DB); memory knobs live in `.env` (`DB_*`, passed on the DB command line) |
 | `config/pg_hba.conf` | Mounted client-auth rules allowing the `nextcloud-network` subnet (stock default only trusts localhost, which would block the app) |
 | `Caddyfile` | Route to app + Talk signaling (`:80`, gzip, static caching) |
@@ -142,10 +142,10 @@ See [BACKUP.md](BACKUP.md). Minimum viable setup on the host (daily cron):
 # app: enable the app
 docker exec -u www-data nextcloud-app php occ app:enable spreed
 
-# app: tell Nextcloud where the signaling + TURN servers live
-docker exec -u www-data nextcloud-app php occ spreed:signaling:add <NC_DOMAIN> --secret=<SIGNALING_SECRET> --verify=1
-docker exec -u www-data nextcloud-app php occ spreed:turn:add udp <NC_DOMAIN>:3478 --secret=<TURN_SECRET>
-docker exec -u www-data nextcloud-app php occ spreed:turn:add tcp <NC_DOMAIN>:3478 --secret=<TURN_SECRET>
+# app: tell Nextcloud where the signaling (HPB) + TURN servers live (NC 34+ uses
+# the talk: namespace; the old spreed: commands were renamed)
+docker exec -u www-data nextcloud-app php occ talk:signaling:add "wss://<NC_DOMAIN>/standalone-signaling" <SIGNALING_SECRET> --verify
+docker exec -u www-data nextcloud-app php occ talk:turn:add turn <NC_DOMAIN> udp,tcp --secret=<TURN_SECRET>
 ```
 
 Notes:

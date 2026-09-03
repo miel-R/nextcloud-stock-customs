@@ -261,7 +261,25 @@ the `.env` values, so manual `occ` changes are usually not required.
 > `NC_DOMAIN`) and recreate the app container - you do **not** need to reinstall.
 > The recreated entrypoint rewrites `config.php` with the corrected domains.
 
-## 9. Verify background jobs
+## 9. Post-install: clear the admin checks
+
+After first login, the Nextcloud admin page may flag a few default warnings.
+Run these once to clear the non-web-server ones (the web-server items - `.mjs`
+MIME type, security headers, `.well-known`/OCS routing, PHP memory limit, OPcache
+- are already handled by `config/nginx.conf` and `config/php-custom.ini`):
+
+```bash
+# maintenance window: heavy daily background jobs at 01:00, off-peak
+docker exec -u www-data nextcloud-app php occ config:system:set maintenance_window_start --value=1
+
+# apply pending mimetype migrations (only needed occasionally, on upgrades)
+docker exec -u www-data nextcloud-app php occ maintenance:repair --include-expensive
+```
+
+> The **High-performance backend** (Talk) warning is resolved separately by
+> completing the Talk wiring in step 11 (`spreed:signaling:add` + `spreed:turn:add`).
+
+## 10. Verify background jobs
 
 Cron runs in the dedicated `nextcloud-cron` container:
 
@@ -272,22 +290,23 @@ docker compose logs -f nextcloud-cron
 In Nextcloud: `Administration settings > Basic settings > Background jobs`
 should show **Cron** running "now".
 
-## 10. Optional: Talk
+## 11. Optional: Talk
 
 `signaling` and `turn` are already in `compose.yaml` and start with the stack.
 They need the signaling backend reachable at `https://<NC_DOMAIN>` and UDP/TCP
 3478 open to clients. If your clients need a real TURN **relay** (restrictive
 NAT), also apply the optional override on a native Linux host:
 `docker compose -f compose.yaml -f compose.turn.yaml up -d`.
-Complete the wiring from the [README Talk section](readme.md):
+Complete the wiring from the [README Talk section](readme.md). The High-performance
+backend uses the `talk:` namespace (NC 34+; older `spreed:` commands were renamed):
 
 ```bash
-docker exec -u www-data nextcloud-app php occ spreed:signaling:add <NC_DOMAIN> --secret=<SIGNALING_SECRET> --verify=1
-docker exec -u www-data nextcloud-app php occ spreed:turn:add udp <NC_DOMAIN>:3478 --secret=<TURN_SECRET>
-docker exec -u www-data nextcloud-app php occ spreed:turn:add tcp <NC_DOMAIN>:3478 --secret=<TURN_SECRET>
+# register the signaling (HPB) server + TURN in Nextcloud Talk
+docker exec -u www-data nextcloud-app php occ talk:signaling:add "wss://<NC_DOMAIN>/standalone-signaling" <SIGNALING_SECRET> --verify
+docker exec -u www-data nextcloud-app php occ talk:turn:add turn <NC_DOMAIN> udp,tcp --secret=<TURN_SECRET>
 ```
 
-## 11. Optional: extra app replica
+## 12. Optional: extra app replica
 
 `APP_REPLICAS` defaults to **1** (the minimum). Add replicas only when the host
 has the RAM and metrics justify it (see [SCALING.md](SCALING.md) - on <= 16 GB
@@ -297,11 +316,11 @@ hosts keep 1 replica):
 docker compose up -d --scale nextcloud-app=2
 ```
 
-## 12. Backups
+## 13. Backups
 
 Set up the daily backup described in [BACKUP.md](BACKUP.md) **before** onboarding users.
 
-## 13. Everyday operations
+## 14. Everyday operations
 
 Stop (app tier first, then the database):
 
@@ -321,7 +340,7 @@ docker compose up -d --remove-orphans
 Full reinstall / fresh start uses the same two commands plus the one-time
 `docker network create nextcloud-network`.
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 | Symptom | Likely cause / fix |
 | --- | --- |
@@ -334,4 +353,5 @@ Full reinstall / fresh start uses the same two commands plus the one-time
 | Talk no audio / no signaling | Verify `spreed:signaling:list` / `spreed:turn:list`; 3478 UDP/TCP reachable; host RAM (see small-host profile in [SCALING.md](SCALING.md)) |
 | Host OOM-kills containers despite limits | Add swap (`fallocate -l 8G /swapfile` on Ubuntu); aux services carry `oom_score_adj: 500` so the app/Talk tier dies last |
 | Uploads stuck at 512 MB | Keep `upload_max_filesize`/`post_max_size` in `config/php-custom.ini` in sync with `UPLOAD_MAX_SIZE` in `.env` (both default `2G`) and the nginx `client_max_body_size` in `config/nginx.conf`, then recreate the app + nginx containers |
+| App page won't render / "extension" console errors (e.g. Apps, Settings) | Browsers cache the `.mjs` chunks by MIME; after changing `config/nginx.conf` MIME/`location` rules do a **hard refresh** (`Ctrl+Shift+R`) or clear site data for your domain - cached modules keep the old `application/octet-stream` label and refuse to run |
 | Sessions lost on scaling | Confirm `REDIS_HOST` is set on the app (image writes the PHP session handler to Redis) |
