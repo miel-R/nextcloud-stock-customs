@@ -277,7 +277,7 @@ docker exec -u www-data nextcloud-app php occ maintenance:repair --include-expen
 ```
 
 > The **High-performance backend** (Talk) warning is resolved separately by
-> completing the Talk wiring in step 11 (`spreed:signaling:add` + `spreed:turn:add`).
+> completing the Talk wiring in step 11 (`talk:signaling:add` + `talk:turn:add`).
 
 ## 10. Verify background jobs
 
@@ -290,23 +290,149 @@ docker compose logs -f nextcloud-cron
 In Nextcloud: `Administration settings > Basic settings > Background jobs`
 should show **Cron** running "now".
 
-## 11. Optional: Talk
+## 11. Optional: Talk (High-performance backend + TURN)
 
-`signaling` and `turn` are already in `compose.yaml` and start with the stack.
-They need the signaling backend reachable at `https://<NC_DOMAIN>` and UDP/TCP
-3478 open to clients. If your clients need a real TURN **relay** (restrictive
-NAT), also apply the optional override on a native Linux host:
-`docker compose -f compose.yaml -f compose.turn.yaml up -d`.
-Complete the wiring from the [README Talk section](readme.md). The High-performance
-backend uses the `talk:` namespace (NC 34+; older `spreed:` commands were renamed):
+This stack ships the **standalone High-performance backend (HPB)** (`signaling`)
+and a **STUN/TURN** relay (`turn`) as stock images in `compose.yaml`. They start
+with the stack, but until you register them in Nextcloud Talk they complain
+(admin warning: *"No High-performance backend configured"*) and calls are capped
+at ~2-3 participants. This step completes the wiring.
+
+### 11.1 Prerequisites
+
+- The `signaling` and `turn` containers are up and healthy (`docker compose ps`).
+- `NC_DOMAIN`, the Talk secrets (`TURN_SECRET`, `SIGNALING_SECRET`,
+  `INTERNAL_SECRET`) and the session keys (`BLOCK_KEY`, `HASH_KEY`) are set in
+  `.env` (see step 5). `INTERNAL_SECRET` must equal `SIGNALING_SECRET` for the
+  HPB to authenticate with Nextcloud.
+- Port **3478** (UDP **and** TCP) is reachable from clients for TURN.
+- The Talk app (`spreed`) is enabled:
+  ```bash
+  docker exec -u www-data nextcloud-app php occ app:enable spreed
+  ```
+
+### 11.2 Register the signaling (HPB) server
+
+The signals are exchanged over the public domain. `nextcloud-app` has no fixed
+container name (so it can be `--scale`d), so run `occ` via the service name.
 
 ```bash
-# register the signaling (HPB) server + TURN in Nextcloud Talk
-docker exec -u www-data nextcloud-app php occ talk:signaling:add "wss://<NC_DOMAIN>/standalone-signaling" <SIGNALING_SECRET> --verify
-docker exec -u www-data nextcloud-app php occ talk:turn:add turn <NC_DOMAIN> udp,tcp --secret=<TURN_SECRET>
+# NC 34+ uses the talk: namespace (the old spreed:* commands were renamed).
+# <SIGNALING_SECRET> must equal the SIGNALING_SECRET in .env.
+docker exec -u www-data nextcloud-app php occ talk:signaling:add \
+  "wss://<NC_DOMAIN>/standalone-signaling" <SIGNALING_SECRET> --verify
 ```
 
-## 12. Optional: extra app replica
+- The `<server>` argument is the **WebSocket** URL the browser talks to. Over
+  Tailscale Funnel / TLS-terminated edge this is `wss://<NC_DOMAIN>/standalone-signaling`
+  (the `Caddyfile` already proxies `/standalone-signaling` to the signaling
+  container on `:8081`).
+- `--verify` validates the SSL certificate (correct for real TLS). For an
+  internal-only HTTP setup, set `SKIP_VERIFY=true` on the signaling service and
+  omit `--verify`.
+
+Check it registered:
+
+```bash
+docker exec -u www-data nextcloud-app php occ talk:signaling:list
+```
+
+### 11.3 Register TURN
+
+```bash
+# schemes: `turn` (or `turn,turns`); protocols: `udp,tcp`; --secret = TURN_SECRET
+docker exec -u www-data nextcloud-app php occ talk:turn:add \
+  turn <NC_DOMAIN> udp,tcp --secret=<TURN_SECRET>
+
+docker exec -u www-data nextcloud-app php occ talk:turn:list
+```
+
+### 11.4 Verify in Nextcloud
+
+Open **Administration settings > Talk**, or `/index.php/settings/admin/office` ->
+**Talk/HPB**. The signaling server should show as **connected**, with the WebSocket
+URL and a feature list (audio-video-permissions, chat-relay, dialout, federation,
+hello-v2, join-features, switchto, virtual-sessions, ...). That clears the
+"High-performance backend" admin warning.
+
+> **Known version notice:** if you see *"Server does not support all features of
+> this Talk version, missing features: changed-users"*, it is a **version gap**
+> between `strukturag/nextcloud-spreed-signaling:2.1.1` and the Talk version in
+> Nextcloud 34, not a misconfiguration. Calls still work; bumping the signaling
+> image to a release that implements `changed-users` silences the notice.
+
+## 12. Compose projects & how the deployment is assembled
+
+The stack is deliberately split into **two Compose projects** plus **one optional
+override file**. This is the "composite deploy": the stateful tier is kept in its
+own project so the web tier can be scaled up/down and upgraded without ever
+touching the database, and Talk TURN relay can be turned on with an overlay.
+
+| File | Project | What it runs | When to `up` it |
+| --- | --- | --- | --- |
+| `compose.db.yaml` | `nextcloud-database` | PostgreSQL (`nextcloud-db`) + Redis (`nextcloud-redis`) — **singletons** | Always first |
+| `compose.yaml` | `nextcloud-stack` | `nextcloud-app` (PHP-FPM), `nextcloud-nginx`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | Always second |
+| `compose.turn.yaml` (override) | `nextcloud-stack` (merged into `compose.yaml`) | TURN **relay** UDP port range for media | Only on native Linux, only if clients need a real relay |
+
+### 12.1 Two projects, one shared network
+
+Both projects connect over the single external network `nextcloud-network`
+(created once, step 4). Containers in either project resolve each other by
+service name across the projects to that one network.
+
+Volumes:
+- `nextcloud_db` — PostgreSQL data (owned by `compose.db.yaml`)
+- `nextcloud_www` — Nextcloud webroot + data (shared read-write by app + cron,
+  read-only by nginx)
+- `caddy_data` / `caddy_config` — Caddy config/state (owned by `compose.yaml`)
+
+### 12.2 The app tier stacking (nginx + PHP-FPM)
+
+`compose.yaml` is itself a 3-layer reverse-proxy/micro-tracing chain per request:
+
+```
+client -> caddy (:80) -> nextcloud-nginx (:80) -> nextcloud-app PHP-FPM (:9000)
+```
+
+- `caddy` — public edge (TLS upstream: Tailscale Funnel / external proxy), does
+  gzip + static caching, routes `/standalone-signaling` to the HPB.
+- `nextcloud-nginx` — stock nginx; serves static files from the webroot, does
+  the Nextcloud rewrite rules/`.well-known`/OCS routing, security headers, and
+  proxies PHP to the FPM pool. Its config is `config/nginx.conf`.
+- `nextcloud-app` — `nextcloud:stable-fpm`; renders PHP, auto-scales its FPM
+  pool from `APP_MEM_LIMIT` (AIO-style). Its config is rendered at boot by
+  `config/fpm-entrypoint.sh`.
+
+`nextcloud-app` deliberately has **no `container_name`** so it can be scaled with
+`--scale nextcloud-app=N`; nginx round-robins the FPM pool across replicas.
+
+### 12.3 Command matrix
+
+```bash
+# bring the whole thing up (the only "composite deploy" command pair)
+docker compose -f compose.db.yaml up -d          # 1) stateful ALWAYS first
+docker compose up -d --remove-orphans            # 2) app tier (incl. nginx, cron, Talk, caddy)
+
+# optional TURN relay overlay (native Linux only)
+docker compose -f compose.yaml -f compose.turn.yaml up -d
+
+# status / logs
+docker compose ps
+docker compose -f compose.db.yaml ps
+docker compose logs -f nextcloud-app
+
+# stop (reverse order: app tier first, then stateful)
+docker compose down
+docker compose -f compose.db.yaml down
+
+# scale the web tier (never scale the stateful tier)
+docker compose up -d --scale nextcloud-app=2
+```
+
+> **Never `--scale` `nextcloud-db` or `nextcloud-redis`** — those are singletons
+> in `compose.db.yaml`; scaling the web tier is what the split is for.
+
+## 13. Optional: extra app replica
 
 `APP_REPLICAS` defaults to **1** (the minimum). Add replicas only when the host
 has the RAM and metrics justify it (see [SCALING.md](SCALING.md) - on <= 16 GB
@@ -316,11 +442,11 @@ hosts keep 1 replica):
 docker compose up -d --scale nextcloud-app=2
 ```
 
-## 13. Backups
+## 14. Backups
 
 Set up the daily backup described in [BACKUP.md](BACKUP.md) **before** onboarding users.
 
-## 14. Everyday operations
+## 15. Everyday operations
 
 Stop (app tier first, then the database):
 
@@ -340,7 +466,7 @@ docker compose up -d --remove-orphans
 Full reinstall / fresh start uses the same two commands plus the one-time
 `docker network create nextcloud-network`.
 
-## 15. Troubleshooting
+## 16. Troubleshooting
 
 | Symptom | Likely cause / fix |
 | --- | --- |
