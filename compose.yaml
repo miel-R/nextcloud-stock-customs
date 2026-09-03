@@ -54,7 +54,9 @@ services:
     restart: unless-stopped
     # Wrapper entrypoint renders /usr/local/etc/php-fpm.d/zz-pool.conf from the
     # container env so pm.max_children auto-scales with APP_MEM_LIMIT.
-    entrypoint: ["/fpm-entrypoint.sh"]
+    # Invoked via bash (not directly) so a bind-mounted script does not need its
+    # exec bit set - Docker Desktop/Windows bind mounts can drop it.
+    entrypoint: ["/bin/bash", "/fpm-entrypoint.sh"]
     volumes:
       - nextcloud:/var/www/html
       - ./config/fpm-entrypoint.sh:/fpm-entrypoint.sh:ro
