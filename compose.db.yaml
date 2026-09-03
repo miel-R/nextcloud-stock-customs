@@ -111,9 +111,11 @@ services:
 # Funnel hostname; n8n subpath hosting is broken in recent n8n - GitHub
 # n8n-io/n8n#19635).
 #
-# To enable: uncomment this service (the n8n role reuses POSTGRES_PASSWORD,
-# and config/init-n8n.sh provisions the n8n db on a fresh volume; on an
-# existing volume create it manually - see N8N.md), then:
+# To enable: remove the leading '#' from the n8n: service block below (keep it
+# nested under 'services:' - col 0 = top level is a Compose schema error). The
+# n8n role reuses POSTGRES_PASSWORD; config/init-n8n.sh provisions the n8n db
+# on a fresh volume - on an existing volume create it manually (see N8N.md).
+# Then:
 #     docker compose -f compose.db.yaml up -d n8n
 #
 #  n8n:
