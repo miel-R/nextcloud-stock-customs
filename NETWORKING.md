@@ -43,7 +43,9 @@ So the question is not "reverse proxy or not" - it is **where TLS is terminated*
 
 ### Option 1 - Caddy :80 + Tailscale Funnel (current; CGNAT / no open ports)
 
-Best when you are behind CGNAT or a NAT you cannot port-forward.
+Best when you are behind CGNAT or a NAT you cannot port-forward. First-time
+Tailscale **install + auth on Ubuntu** is covered in `INSTALL.md` step 6
+(`curl -fsSL https://tailscale.com/install.sh | sh`, then `sudo tailscale up`).
 
 What to change / verify:
 - `.env` (set these so browser + desktop/mobile use HTTPS URLs):

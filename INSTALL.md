@@ -201,10 +201,44 @@ only read on first boot, so changing them later needs `occ` or a fresh install.
 ## 6. DNS / TLS - choose ONE before first start (Caddy needs it at boot)
 
 **A) Tailscale Funnel (no public IP / CGNAT)** - Tailscale terminates TLS and
-forwards HTTP to Caddy on `:80`:
+forwards HTTP to Caddy on `:80`. Use this when you are behind CGNAT or can't
+port-forward. Requires a Tailscale account (free for personal use).
+
+**A.1 Install Tailscale on Ubuntu:**
+
+```bash
+# add the Tailscale apt repo and install
+curl -fsSL https://tailscale.com/install.sh | sh
+
+# authenticate this host to your tailnet (opens a browser, or use a pre-auth key)
+sudo tailscale up
+```
+
+For an unattended install, generate an auth key in the Tailscale admin console
+and pass it to `tailscale up --authkey=<KEY>`. The chosen `*.ts.net` hostname is
+what you use for `NC_DOMAIN` - check it with:
+
+```bash
+tailscale status          # shows your assigned <host>.ts.net name
+```
+
+**A.2 Test the funnel before starting Nextcloud** (Caddy will listen on `:80`):
 
 ```bash
 tailscale funnel --bg http://127.0.0.1:80
+```
+
+The browser can now reach the host at `https://<host>.ts.net` while Caddy is on
+`:80`. You can also use **Tailscale Serve** for a tailnet-internal-only name
+(`tailscale serve --bg http://127.0.0.1:80`) if you do not want a public site.
+
+**A.3 Set `.env` to the HTTPS public URL** (see step 5):
+
+```bash
+NC_DOMAIN=<your-host>.ts.net
+OVERWRITECLIURL=https://<your-host>.ts.net
+OVERWRITEPROTOCOL=https
+NEXTCLOUD_TRUSTED_DOMAINS=localhost 127.0.0.1 nextcloud <your-host>.ts.net
 ```
 
 **B) Direct Caddy + Let's Encrypt** - point an A record for `NC_DOMAIN` at this
@@ -476,7 +510,9 @@ Full reinstall / fresh start uses the same two commands plus the one-time
 | "Please contact your administrator ... edit the trusted_domains setting" | The real domain is missing from `NEXTCLOUD_TRUSTED_DOMAINS` in `.env` (install succeeded but the browser host isn't trusted). Put your actual domain in as the last entry (`localhost 127.0.0.1 nextcloud <your-domain>`), fix `NC_DOMAIN` (no trailing slash), then recreate the app container so the entrypoint regenerates `config.php` |
 | App container restarts / OOM | Lower `APP_MEM_LIMIT` in `.env` (FPM derives `pm.max_children` from it; total children x ~150 MB must stay below the limit), or raise the host RAM |
 | `nextcloud-turn` never starts / machine lags on `up` | The 16k UDP relay range (`49152-65535`) is no longer in the main compose file - it hangs on Docker Desktop and is slow on Linux. Use the small optional override only on native Linux when you need TURN relay: `docker compose -f compose.yaml -f compose.turn.yaml up -d` |
-| Talk no audio / no signaling | Verify `spreed:signaling:list` / `spreed:turn:list`; 3478 UDP/TCP reachable; host RAM (see small-host profile in [SCALING.md](SCALING.md)) |
+| Talk no audio / no signaling | Verify `talk:signaling:list` / `talk:turn:list`; 3478 UDP/TCP reachable; host RAM (see small-host profile in [SCALING.md](SCALING.md)) |
+| Site not reachable on `https://<host>.ts.net` | Funnel not running / the browser needs the exact hostname. Check `tailscale status` for the assigned `*.ts.net` name, then `tailscale funnel --bg http://127.0.0.1:80` and confirm `NC_DOMAIN`/`NEXTCLOUD_TRUSTED_DOMAINS` use that exact name (no trailing slash) - recreate the app container after changing them |
+| `tailscale` not found | Install it: `curl -fsSL https://tailscale.com/install.sh | sh` and re-authenticate with `sudo tailscale up` (step 6) |
 | Host OOM-kills containers despite limits | Add swap (`fallocate -l 8G /swapfile` on Ubuntu); aux services carry `oom_score_adj: 500` so the app/Talk tier dies last |
 | Uploads stuck at 512 MB | Keep `upload_max_filesize`/`post_max_size` in `config/php-custom.ini` in sync with `UPLOAD_MAX_SIZE` in `.env` (both default `2G`) and the nginx `client_max_body_size` in `config/nginx.conf`, then recreate the app + nginx containers |
 | App page won't render / "extension" console errors (e.g. Apps, Settings) | Browsers cache the `.mjs` chunks by MIME; after changing `config/nginx.conf` MIME/`location` rules do a **hard refresh** (`Ctrl+Shift+R`) or clear site data for your domain - cached modules keep the old `application/octet-stream` label and refuse to run |
