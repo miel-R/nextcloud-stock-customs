@@ -62,19 +62,23 @@ the tailnet (e.g. `ssh -L` or a Tailnet client hitting `http://<host>:5678`).
 
 ## 1. Enable the database provisioning (one-time)
 
-The `N8N_DB_PASSWORD` sits at the **top of `.env`** next to
-`POSTGRES_PASSWORD`, **commented out by default** (a **different** random value
-from `POSTGRES_PASSWORD` - `openssl rand -base64 24`). `N8N_DB_NAME` and
-`N8N_DB_USER` are not required because they default to `n8n`.
+No separate n8n password is needed. The `n8n` login role is created with the
+**same password string as `POSTGRES_PASSWORD`** (`config/init-n8n.sh` defaults
+`N8N_DB_PASSWORD` to `POSTGRES_PASSWORD`). `N8N_DB_NAME` and `N8N_DB_USER`
+default to `n8n`; they are listed (commented) in `.env` only if you want to
+override them:
 
 ```bash
-# .env - uncomment this line when you install n8n:
-# N8N_DB_PASSWORD=<long random>     # openssl rand -base64 24
+# .env (top of file, next to the database/admin secrets)
+POSTGRES_PASSWORD=<the same value used everywhere>
+# N8N_DB_NAME=n8n     # uncomment only to override the database name
+# N8N_DB_USER=n8n     # uncomment only to override the role name
 ```
 
-When not using n8n, leave it commented **and** leave the n8n service commented
-in `compose.db.yaml` (the default) - the compose `:?` guard requires the
-password only when the n8n service is enabled.
+To use a **distinct** credential instead (optional), set `N8N_DB_PASSWORD` on
+the `nextcloud-db` service env in `compose.db.yaml`; if you do, also set
+`DB_POSTGRESDB_PASSWORD=${N8N_DB_PASSWORD}` on the n8n service and keep the two
+in sync.
 
 The `nextcloud-db` service in `compose.db.yaml` already mounts
 `config/init-n8n.sh` into `/docker-entrypoint-initdb.d/`. On the **first

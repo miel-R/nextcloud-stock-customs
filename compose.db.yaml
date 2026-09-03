@@ -45,10 +45,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-nextcloud}
       POSTGRES_USER: ${POSTGRES_USER:-nextcloud}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?err}
-      # Database/role created by init-n8n.sh for n8n (same instance, separate DB).
+      # Database/role created by init-n8n.sh for n8n (same instance, separate
+      # DB). The n8n role reuses POSTGRES_PASSWORD by default (see init-n8n.sh).
       N8N_DB_NAME: ${N8N_DB_NAME:-n8n}
       N8N_DB_USER: ${N8N_DB_USER:-n8n}
-      N8N_DB_PASSWORD: ${N8N_DB_PASSWORD:-}
     # Memory/work knobs are passed on the command line so they can be set from
     # .env; the mounted postgresql.conf keeps the WAL + planner tuning, and the
     # mounted pg_hba.conf is pointed to via hba_file.
@@ -111,11 +111,10 @@ services:
 # Funnel hostname; n8n subpath hosting is broken in recent n8n - GitHub
 # n8n-io/n8n#19635).
 #
-# To enable: uncomment this service AND set N8N_DB_PASSWORD in .env (see the
-# commented line next to POSTGRES_PASSWORD), then:
+# To enable: uncomment this service (the n8n role reuses POSTGRES_PASSWORD,
+# and config/init-n8n.sh provisions the n8n db on a fresh volume; on an
+# existing volume create it manually - see N8N.md), then:
 #     docker compose -f compose.db.yaml up -d n8n
-# config/init-n8n.sh provisions the n8n role + db on a fresh volume; on an
-# existing volume create them manually (see N8N.md).
 #
 #  n8n:
 #    image: docker.n8n.io/n8nio/n8n:latest
@@ -135,7 +134,7 @@ services:
 #      - DB_POSTGRESDB_PORT=5432
 #      - DB_POSTGRESDB_DATABASE=${N8N_DB_NAME:-n8n}
 #      - DB_POSTGRESDB_USER=${N8N_DB_USER:-n8n}
-#      - DB_POSTGRESDB_PASSWORD=${N8N_DB_PASSWORD:?set N8N_DB_PASSWORD in .env}
+#      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:?err}
 #      - DB_POSTGRESDB_SCHEMA=public
 #    volumes:
 #      - ./n8n_data:/home/node/.n8n
