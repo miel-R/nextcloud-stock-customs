@@ -138,6 +138,19 @@ handle @n8n {
 > resolvable hostname through the same Caddy (Option C) is the supported way to
 > have both on the Funnel.
 
+> **Tailscale does NOT create per-node subdomains.** MagicDNS only resolves a
+> node's own name (`machinename.tailnet.ts.net`) and explicit hostnames you add
+> in the Tailscale admin console (which map to **nodes**, not sub-path routes).
+> A name like `n8n.<your-node>.ts.net` does **not** resolve — there is no node
+> named `n8n`, and Tailscale won't mint `*.<node>.ts.net`. Verified:
+> `n8n.ck1189.tail650e17.ts.net` fails to resolve while
+> `ck1189.tail650e17.ts.net` resolves. To get a working n8n hostname you need a
+> **real DNS name** (e.g. `n8n.example.com` — buy a domain at Namecheap or
+> similar and add an `A`/`CNAME` record pointing it at this host), or a **second
+> tailnet node actually named `n8n`**. A purchased domain is the clean route:
+> `nextcloud.example.com` → Nextcloud and `n8n.example.com` → n8n, both through
+> the same Caddy/Funnel on :443.
+
 > Further reading: n8n self-hosting / proxy docs — "security: authentication",
 > `N8N_HOST` / `N8N_PROTOCOL` / `N8N_PORT` env reference.
 
@@ -170,13 +183,11 @@ COMPOSE_PROFILES=n8n        # "n8n" = run n8n (ON) ; empty = don't (OFF)
 
 ---
 
-## 1. Enable the database provisioning (one-time)
+## 1. Database provisioning — why it auto-runs (or doesn't)
 
 No separate n8n password is needed. The `n8n` login role is created with the
-**same password string as `POSTGRES_PASSWORD`** (`config/init-n8n.sh` defaults
-its password to `POSTGRES_PASSWORD`). `N8N_DB_NAME` and `N8N_DB_USER` default
-to `n8n`; they are listed (commented) in `.env` only if you want to override
-them:
+**same password string as `POSTGRES_PASSWORD`** (see `config/init-n8n.sh`).
+`N8N_DB_NAME` and `N8N_DB_USER` default to `n8n` if unset.
 
 ```bash
 # .env (top of file, next to the database/admin secrets)
@@ -187,31 +198,127 @@ POSTGRES_PASSWORD=<the same value used everywhere>
 
 > Because the n8n role reuses `POSTGRES_PASSWORD`, there is **no**
 > `N8N_DB_PASSWORD` variable anywhere. If you prefer a distinct credential, set
-> a different password when you create the role (step below) and pass it via
+> a different password when you create the role (below) and pass it via
 > `DB_POSTGRESDB_PASSWORD` on the `n8n` service in `compose.n8n.yaml`, keeping
 > the two in sync.
 
-The `nextcloud-db` service in `compose.db.yaml` already mounts
-`config/init-n8n.sh` into `/docker-entrypoint-initdb.d/`. On the **first
-initialization of an empty `nextcloud_db` volume**, that script creates the
-`n8n` role and `n8n` database automatically.
+### The volume-lifecycle gotcha
 
-> **If the data volume already exists** (e.g. you are on an existing
-> install), the init script is **not** re-run - Postgres only runs init scripts
-> once on an empty volume. In that case create the role + database manually:
+`config/init-n8n.sh` is mounted into `/docker-entrypoint-initdb.d/`. The stock
+postgres image runs **everything in that folder exactly once**, on the **first
+`up` against an EMPTY data directory**. After that first boot the `nextcloud_db`
+volume is "initialized" and the init scripts are **never run again**.
+
+So the `n8n` role/database are created automatically **only** when the
+`nextcloud_db` volume is brand new. On an **existing** install (which is your
+normal case — you must NOT destroy the volume to keep Nextcloud data), the role
+must be created manually. n8n failing with
+`password authentication failed for user "n8n"` is the classic symptom of that.
+
+Decide which case you're in before starting n8n:
+
+| Situation | n8n role/db created how? |
+| --- | --- |
+| Brand-new `nextcloud_db` volume (first ever deploy) | Automatic via `init-n8n.sh` |
+| Existing volume / re-deploy / re-clone (data preserved) | **Manual** (see next) |
+
+### Path A — fresh volume: automatic
+
+On a brand-new volume, just start the database project; the `n8n` role + db are
+created for you:
 
 ```bash
-docker compose -f compose.db.yaml exec nextcloud-db \
-  psql -U nextcloud -d nextcloud -c \
-  "CREATE ROLE n8n LOGIN PASSWORD '<POSTGRES_PASSWORD value>'"
-docker compose -f compose.db.yaml exec nextcloud-db \
-  psql -U nextcloud -d nextcloud -c "CREATE DATABASE n8n OWNER n8n"
+docker compose -f compose.db.yaml up -d
 ```
 
-> The `nextcloud` DB user is a **superuser** in the stock image, so it can
-> create roles and databases. `config/init-n8n.sh` is idempotent (won't fail if
-> the role/db already exist) and always works, so it is safe to leave mounted
-> even if you never use n8n.
+Verify they exist:
+
+```bash
+docker compose -f compose.db.yaml exec nextcloud-db psql -U nextcloud -d nextcloud \
+  -tAc "SELECT 1 FROM pg_roles WHERE rolname='n8n'"
+# expected: 1
+docker compose -f compose.db.yaml exec nextcloud-db psql -U nextcloud -d nextcloud \
+  -tAc "SELECT 1 FROM pg_database WHERE datname='n8n'"
+# expected: 1
+```
+
+### Path B — existing volume (data preserved): manual, once
+
+Create the role + database if they do not exist. The `nextcloud` DB user is a
+**superuser** in the stock image, so it can create roles and databases. This is
+idempotent and safe — use it for every re-deploy on an existing volume:
+
+```bash
+# 1. create the role if missing (password = POSTGRES_PASSWORD)
+docker compose -f compose.db.yaml exec nextcloud-db psql -U nextcloud -d nextcloud \
+  -c "CREATE ROLE n8n LOGIN PASSWORD '<POSTGRES_PASSWORD value>'"
+
+# 2. make sure the latest Nextcloud DB user owns/superuser can always CREATE ROLE
+# (already the stock default) then create the database if missing
+
+# 3. create the database if missing
+docker compose -f compose.db.yaml exec nextcloud-db psql -U nextcloud -d nextcloud \
+  -c "CREATE DATABASE n8n OWNER n8n"
+```
+
+> If either object already exists you'll get an error like
+> `role "n8n" already exists` / `database "n8n" already exists` — that is fine,
+> it means the step is already done. Re-run both only when they are missing.
+
+`config/init-n8n.sh` stays mounted and harmless: it is idempotent, and on an
+existing volume it never runs again anyway.
+
+---
+
+## 1b. Redeploy / reconnect without data loss (procedure)
+
+When you re-deploy the whole stack (re-clone, new machine, compose re-up) you
+**keep** the `nextcloud_db` volume — recreating it would wipe Nextcloud's data.
+Because the init script only runs on a fresh volume, you must re-establish the
+n8n connection manually. Follow this order every time:
+
+### Step 1 — check the n8n role exists
+
+```bash
+docker compose -f compose.db.yaml exec nextcloud-db psql -U nextcloud -d nextcloud \
+  -tAc "SELECT 1 FROM pg_roles WHERE rolname='n8n'"
+# prints "1" => exists, skip to Step 3
+# prints nothing => role is missing, do Step 2
+```
+
+### Step 2 — recreate the n8n role + database (only if missing)
+
+```bash
+docker compose -f compose.db.yaml exec nextcloud-db psql -U nextcloud -d nextcloud \
+  -c "CREATE ROLE n8n LOGIN PASSWORD '<POSTGRES_PASSWORD value>';"
+docker compose -f compose.db.yaml exec nextcloud-db psql -U nextcloud -d nextcloud \
+  -c "CREATE DATABASE n8n OWNER n8n;"
+```
+
+### Step 3 — start n8n and confirm it connects
+
+```bash
+docker compose -f compose.n8n.yaml up -d
+docker compose -f compose.n8n.yaml logs n8n --tail 20
+# look for "Editor is now accessible via: http://..." and NO
+# "password authentication failed" / "There was an error initializing DB"
+```
+
+### Step 4 — sanity-check the endpoint
+
+```bash
+# http 200 = editor is up
+curl -fsS http://127.0.0.1:5678/ -o /dev/null -w "editor HTTP %{http_code}\n"
+```
+
+If Step 4 fails or the logs show `password authentication failed for user
+"n8n"`, step 2 was skipped — run it, then `docker compose -f compose.n8n.yaml
+restart n8n`.
+
+> **Why this is safe:** the manual `CREATE ROLE` / `CREATE DATABASE` only adds
+> objects; it never touches Nextcloud's `nextcloud` database, so Nextcloud data
+> is preserved. The n8n `./n8n_data` bind mount (workflows/config) also survives
+> re-deploys as long as you don't delete it.
 
 ---
 
@@ -292,7 +399,8 @@ public Funnel) to finish the n8n setup wizard.
 
 Applies to a **clean host** (or a host where you do not mind the Postgres
 volume being recreated). If the `nextcloud_db` volume already exists, follow
-step 1's manual provisioning instead of the automatic init-script path.
+**section 1 → Path B** (or the `1b. Redeploy` procedure) for the manual
+provisioning instead of the automatic init-script path.
 
 ### 4.1 Clone both repos
 
@@ -406,7 +514,7 @@ in the same Postgres.
 
 | Symptom | Cause / fix |
 | --- | --- |
-| n8n fails to start: `role "n8n" does not exist` | The DB volume already existed so the init script never ran. Provision manually (step 1 "If the data volume already exists") and restart n8n (`docker compose -f compose.n8n.yaml restart`) |
+| n8n fails to start: `role "n8n" does not exist` | The DB volume already existed so the init script never ran. Provision manually (section 1 → Path B, or the "1b. Redeploy" procedure) and restart n8n (`docker compose -f compose.n8n.yaml restart`) |
 | n8n starts but can't connect to Postgres (`connection refused`, host `nextcloud-db`) | The `nextcloud-db` container is not on `nextcloud-network`, or you started n8n before the DB project. Ensure `docker compose -f compose.db.yaml up -d` ran for the DB first |
 | `password authentication failed for user "n8n"` | The n8n role's password does not match `POSTGRES_PASSWORD` (or the `DB_POSTGRESDB_PASSWORD` env). Re-provision the role to match |
 | `no such service: n8n` when using `compose.db.yaml` | n8n no longer lives in `compose.db.yaml` — it is its own file. Use `docker compose -f compose.n8n.yaml up -d` |
