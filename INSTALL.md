@@ -364,25 +364,53 @@ at ~2-3 participants. This step completes the wiring.
 
 ### 11.2 Register the signaling (HPB) server
 
-The signals are exchanged over the public domain. `nextcloud-app` has no fixed
-container name (so it can be `--scale`d), so run `occ` via the service name.
+Run these **only after the install has completed** (`occ status` shows
+`installed: true`). The signals are exchanged over the public domain.
+`nextcloud-app` has no fixed container name (so it can be `--scale`d), so run
+`occ` via the service name.
+
+**Step 1 - confirm install is done (skip this step if it is):**
 
 ```bash
-# NC 34+ uses the talk: namespace (the old spreed:* commands were renamed).
-# <SIGNALING_SECRET> must equal the SIGNALING_SECRET in .env.
+docker compose exec nextcloud-app php occ status
+# must print:  - installed: true
+```
+
+If it prints `installed: false` / "Nextcloud is not installed", finish the
+web installer first (step 8) - the `talk:` commands do **not** exist until then.
+
+**Step 2 - grab your real domain and secret from `.env`.**
+
+Note down the exact values - do **not** type the literal strings `<NC_DOMAIN>`
+or `<SIGNALING_SECRET>`; those are placeholders. `SIGNALING_SECRET` below **must
+equal** the `SIGNALING_SECRET=` line in `.env`:
+
+```bash
+grep -E '^(NC_DOMAIN|SIGNALING_SECRET)=' .env
+```
+
+**Step 3 - register the signaling server.**
+
+> NC 34+ uses the `talk:` namespace (the old `spreed:*` commands were renamed).
+> The `<server>` argument is the **WebSocket** URL the browser talks to. Over
+> Tailscale Funnel / TLS-terminated edge this is `wss://<NC_DOMAIN>/standalone-signaling`
+> (the `Caddyfile` already proxies `/standalone-signaling` to the signaling
+> container on `:8081`).
+
+```bash
 docker exec -u www-data nextcloud-app php occ talk:signaling:add \
   "wss://<NC_DOMAIN>/standalone-signaling" <SIGNALING_SECRET> --verify
 ```
 
-- The `<server>` argument is the **WebSocket** URL the browser talks to. Over
-  Tailscale Funnel / TLS-terminated edge this is `wss://<NC_DOMAIN>/standalone-signaling`
-  (the `Caddyfile` already proxies `/standalone-signaling` to the signaling
-  container on `:8081`).
+- Replace `<NC_DOMAIN>` with the domain from step 2 (e.g.
+  `wss://mis-server.tail204a2d.ts.net/standalone-signaling`).
+- Replace `<SIGNALING_SECRET>` with the actual secret from step 2 (e.g.
+  `X9wVE4b8/...` - no angle brackets, no quotes).
 - `--verify` validates the SSL certificate (correct for real TLS). For an
   internal-only HTTP setup, set `SKIP_VERIFY=true` on the signaling service and
   omit `--verify`.
 
-Check it registered:
+**Step 4 - check it registered:**
 
 ```bash
 docker exec -u www-data nextcloud-app php occ talk:signaling:list
