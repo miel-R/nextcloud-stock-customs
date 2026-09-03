@@ -127,40 +127,57 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-Fill in at the minimum the secrets and domain. To generate passwords on Ubuntu
-use `openssl rand -base64 24`; on Windows use the PowerShell one-liner in the
-Talk secrets block below (the same `New-Object ... RNGCryptoServiceProvider`
-pattern):
+Every value below **must** be filled in before first start. The two things that
+silently break installs are **(1) leaving the `nextcloud.example.com` placeholder**
+and **(2) a trailing `/` on `NC_DOMAIN`**.
+
+### What to set, line by line
+
+> Fill in at least the secrets and domain. To generate passwords on Ubuntu use
+> `openssl rand -base64 24`; on Windows use the PowerShell one-liners in the
+> Talk secrets section below.
+
+| `.env` line | What to put | Gotcha |
+| --- | --- | --- |
+| `POSTGRES_PASSWORD=` | a long random password | used **only on first DB boot**; changing it later needs a DB reset |
+| `NEXTCLOUD_ADMIN_USER=/ADMIN_PASSWORD=` | your Nextcloud admin login | used only if install is done via the web installer |
+| `NC_DOMAIN=` | your public domain, **no scheme** | **NO trailing slash** - `…/` breaks it |
+| `OVERWRITECLIURL=` | `https://` + your domain | used so CLI/`occ` builds https links |
+| `OVERWRITEPROTOCOL=` | `http` or `https` | `https` when TLS is terminated in front (Funnel/Direct LE) |
+| `NEXTCLOUD_TRUSTED_DOMAINS=` | `localhost 127.0.0.1 nextcloud <your-domain>` | **must end with your real domain, not the placeholder** |
+| `TRUSTED_PROXIES=` | the docker subnet | `docker network inspect nextcloud-network` (default `172.16.0.0/12`) |
+| `TURN_SECRET/SIGNALING_SECRET/INTERNAL_SECRET=` | 3 random base64 | must match what the signaling/TURN containers get |
+| `BLOCK_KEY=` / `HASH_KEY=` | random hex | sizes shown in the secrets section below |
+
+### Worked example (Tailscale Funnel, `.ts.net`, no real cert)
+
+Replace every `nextcloud.example.com` and every `<your-host>.ts.net` with your
+actual hostname (found via `tailscale status`, step 6):
 
 ```bash
-POSTGRES_PASSWORD=<long random>
-NEXTCLOUD_ADMIN_PASSWORD=<long random>
-NC_DOMAIN=nextcloud.example.com          # no scheme, no port, NO trailing slash
-OVERWRITECLIURL=https://nextcloud.example.com
+NC_DOMAIN=mis-server.tail204a2d.ts.net          # NO trailing slash, NO scheme
+OVERWRITECLIURL=https://mis-server.tail204a2d.ts.net
 OVERWRITEPROTOCOL=https
-NEXTCLOUD_TRUSTED_DOMAINS=localhost 127.0.0.1 nextcloud nextcloud.example.com
-TRUSTED_PROXIES=<subnet>                 # docker network inspect nextcloud-network
+NEXTCLOUD_TRUSTED_DOMAINS=localhost 127.0.0.1 nextcloud mis-server.tail204a2d.ts.net
+TRUSTED_PROXIES=172.16.0.0/12
 ```
 
-> **The `nextcloud.example.com` placeholder must be REPLACED by your real domain
-> in *all three* places** above: `NC_DOMAIN`, `OVERWRITECLIURL`, and
-> `NEXTCLOUD_TRUSTED_DOMAINS`. If you leave the placeholder, or make a typo, the
-> browser will show **"Please contact your administrator ... edit the
-> trusted_domains setting"** even though the install succeeded.
+> **Verify before continuing - run `grep` and confirm:**
+>   - `NC_DOMAIN=` has **no trailing `/`** (the line must not end in `/`),
+>   - `NEXTCLOUD_TRUSTED_DOMAINS=` ends with `mis-server.tail204a2d.ts.net`
+>     (not `nextcloud.example.com`).
 >
-> `NC_DOMAIN` must have **no scheme (no `https://`) and no trailing slash** - a
-> trailing `/` breaks the value. The trusted-domain / overwrite settings are read
-> when the app container starts, so after changing them you must recreate the app
-> container (step 7) - they are **not** picked up from a running container.
-
-If using **Tailscale Funnel** (`.ts.net` domain, no real certificate):
-
-```bash
-NC_DOMAIN=<your-host>.ts.net
-OVERWRITECLIURL=https://<your-host>.ts.net
-OVERWRITEPROTOCOL=https
-NEXTCLOUD_TRUSTED_DOMAINS=localhost 127.0.0.1 nextcloud <your-host>.ts.net
-```
+> Commands:
+> ```bash
+> grep '^NC_DOMAIN=' .env
+> grep '^NEXTCLOUD_TRUSTED_DOMAINS=' .env
+> ```
+>
+> If either is wrong, fix `.env` and recreate the app container (step 7) - the
+> values are read at container start, **not** from a running container. Leaving
+> the placeholder or a trailing slash makes the browser show **"Please contact
+> your administrator ... edit the trusted_domains setting"** even though the
+> install succeeded - it is the single most common install failure.
 
 ### Talk secrets (required - the stack ships Talk)
 
@@ -509,6 +526,7 @@ Full reinstall / fresh start uses the same two commands plus the one-time
 | 500 on first load | `docker compose logs nextcloud-app`; DB not started yet or `POSTGRES_PASSWORD` empty - start `compose.db.yaml` first |
 | App can't reach `nextcloud-db` / DB errors at boot | Start the database project first: `docker compose -f compose.db.yaml up -d` |
 | "Please contact your administrator ... edit the trusted_domains setting" | The real domain is missing from `NEXTCLOUD_TRUSTED_DOMAINS` in `.env` (install succeeded but the browser host isn't trusted). Put your actual domain in as the last entry (`localhost 127.0.0.1 nextcloud <your-domain>`), fix `NC_DOMAIN` (no trailing slash), then recreate the app container so the entrypoint regenerates `config.php` |
+| `occ status` says `installed: false` / "Nextcloud is not installed" (or `Error while trying to create admin account ... password authentication failed`) | First-boot install never completed - usually because the browser loaded the site with a wrong trusted domain (placeholder or trailing `/`), or the DB volume was created with a different `POSTGRES_PASSWORD`. Fix `.env` per step 5 (correct domain, no trailing slash), and if the DB password changed since the volume was created, reset the DB: `docker compose -f compose.db.yaml down -v` (removes data) then `docker compose -f compose.db.yaml up -d`. Recreate the app and open `https://<NC_DOMAIN>/` in the browser (hard refresh) to finish the setup which sets `installed: true` |
 | App container restarts / OOM | Lower `APP_MEM_LIMIT` in `.env` (FPM derives `pm.max_children` from it; total children x ~150 MB must stay below the limit), or raise the host RAM |
 | `nextcloud-turn` never starts / machine lags on `up` | The 16k UDP relay range (`49152-65535`) is no longer in the main compose file - it hangs on Docker Desktop and is slow on Linux. Use the small optional override only on native Linux when you need TURN relay: `docker compose -f compose.yaml -f compose.turn.yaml up -d` |
 | Talk no audio / no signaling | Verify `talk:signaling:list` / `talk:turn:list`; 3478 UDP/TCP reachable; host RAM (see small-host profile in [SCALING.md](SCALING.md)) |
