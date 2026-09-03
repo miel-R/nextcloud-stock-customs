@@ -590,7 +590,45 @@ docker compose up -d --remove-orphans
 Full reinstall / fresh start uses the same two commands plus the one-time
 `docker network create nextcloud-network`.
 
-## 16. Troubleshooting
+## 16. First deploy on Ubuntu (quick runbook)
+
+The full step-by-step is above; this is the condensed order on a fresh Ubuntu
+server, chaining the commands that matter (assumes `docker` installed and
+enabled as a **systemd daemon** - `sudo systemctl enable --now docker`).
+
+```bash
+# 1. Pull and configure
+git clone https://github.com/miel-R/nextcloud-stock-customs.git
+cd nextcloud-stock-customs
+cp .env.example .env
+nano .env          # secrets + real domain (no trailing slash, no placeholder) - see step 5
+
+# 2. If anything already holds :80 (system apache2/nginx), free it first
+sudo ss -tlnp | grep :80        # shows the offender
+sudo systemctl stop apache2 && sudo systemctl disable apache2 && sudo pkill -f apache2
+
+# 3. Network + DB/Redis first, then the app tier
+docker network create nextcloud-network
+docker compose -f compose.db.yaml up -d
+docker compose up -d --remove-orphans
+
+# 4. Finish the web installer (creates the admin, sets installed:true)
+#    open https://<NC_DOMAIN>/ in the browser, hard refresh (Ctrl+Shift+R)
+
+# 5. Register the HPB + TURN (only after occ status shows installed: true)
+docker compose exec nextcloud-app php occ status
+docker compose exec nextcloud-app php occ talk:signaling:add \
+  "wss://<NC_DOMAIN>/standalone-signaling" <SIGNALING_SECRET> --verify
+docker compose exec nextcloud-app php occ talk:turn:add \
+  turn <NC_DOMAIN> udp,tcp --secret=<TURN_SECRET>
+```
+
+> Run `occ` with `docker compose exec nextcloud-app …` (service name), **not**
+> `docker exec nextcloud-app …` - the real container name carries a project
+> prefix (`nextcloud-stack-nextcloud-app-1`) that changes per folder. See the
+> step 11 note and the `No such container` row in troubleshooting.
+
+## 17. Troubleshooting
 
 | Symptom | Likely cause / fix |
 | --- | --- |
@@ -599,7 +637,8 @@ Full reinstall / fresh start uses the same two commands plus the one-time
 | 500 on first load | `docker compose logs nextcloud-app`; DB not started yet or `POSTGRES_PASSWORD` empty - start `compose.db.yaml` first |
 | App can't reach `nextcloud-db` / DB errors at boot | Start the database project first: `docker compose -f compose.db.yaml up -d` |
 | "Please contact your administrator ... edit the trusted_domains setting" | The real domain is missing from `NEXTCLOUD_TRUSTED_DOMAINS` in `.env` (install succeeded but the browser host isn't trusted). Put your actual domain in as the last entry (`localhost 127.0.0.1 nextcloud <your-domain>`), fix `NC_DOMAIN` (no trailing slash), then recreate the app container so the entrypoint regenerates `config.php` |
-| `occ status` says `installed: false` / "Nextcloud is not installed" (or `Error while trying to create admin account ... password authentication failed`) | First-boot install never completed - usually because the browser loaded the site with a wrong trusted domain (placeholder or trailing `/`), or the DB volume was created with a different `POSTGRES_PASSWORD`. Fix `.env` per step 5 (correct domain, no trailing slash), and if the DB password changed since the volume was created, reset the DB: `docker compose -f compose.db.yaml down -v` (removes data) then `docker compose -f compose.db.yaml up -d`. Recreate the app and open `https://<NC_DOMAIN>/` in the browser (hard refresh) to finish the setup which sets `installed: true` |
+| `occ status` says `installed: false` / "Nextcloud is not installed" (or `Error while trying to create admin account ... password authentication failed`) | First-boot install never completed - usually because the browser loaded the site with a wrong trusted domain (placeholder or trailing `/`), or the DB volume was created with a different `POSTGRES_PASSWORD`. Fix `.env` per step 5 (correct domain, no trailing slash). If the DB *password* changed since the volume was first created, reset the DB volume - it keeps the password it was first initialized with even after `down -v` if the container isn't recreated (verify the volume was actually dropped: `docker volume ls`). To force a full DB reset: `docker compose -f compose.db.yaml down -v`, confirm nothing on `nextcloud-network` holds it, `docker volume rm <db-volume>` if it still lists, then `docker compose -f compose.db.yaml up -d`. Recreate the app and open `https://<NC_DOMAIN>/` in the browser (hard refresh) to finish the setup which sets `installed: true` |
+| `Error response from daemon: No such container: nextcloud-app` | You used the **service** name with `docker exec` - the real container is prefixed (e.g. `nextcloud-stack-nextcloud-app-1`) and the prefix changes with the project/folder name. Use `docker compose exec nextcloud-app …` (resolves the name for you), or look up the exact name with `docker ps --format '{{.Names}}'` and use that with `docker exec`. See the step 11 note on running `occ` |
 | App container restarts / OOM | Lower `APP_MEM_LIMIT` in `.env` (FPM derives `pm.max_children` from it; total children x ~150 MB must stay below the limit), or raise the host RAM |
 | `nextcloud-turn` never starts / machine lags on `up` | The 16k UDP relay range (`49152-65535`) is no longer in the main compose file - it hangs on Docker Desktop and is slow on Linux. Use the small optional override only on native Linux when you need TURN relay: `docker compose -f compose.yaml -f compose.turn.yaml up -d` |
 | Talk no audio / no signaling | Verify `talk:signaling:list` / `talk:turn:list`; 3478 UDP/TCP reachable; host RAM (see small-host profile in [SCALING.md](SCALING.md)) |
