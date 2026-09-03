@@ -349,6 +349,14 @@ with the stack, but until you register them in Nextcloud Talk they complain
 (admin warning: *"No High-performance backend configured"*) and calls are capped
 at ~2-3 participants. This step completes the wiring.
 
+> **Run `occ` via the service name, NOT the container name.** The actual app
+> container is prefixed with the project name (e.g. `nextcloud-stack-nextcloud-app-1`)
+> and the prefix changes with the folder name, so a hard-coded
+> `docker exec nextcloud-app …` fails with **`Error response from daemon: No such
+> container: nextcloud-app`**. Always use `docker compose exec nextcloud-app …`
+> - that resolves the real container for you. To confirm the app container first:
+> `docker compose ps`.
+
 ### 11.1 Prerequisites
 
 - The `signaling` and `turn` containers are up and healthy (`docker compose ps`).
@@ -397,15 +405,31 @@ grep -E '^(NC_DOMAIN|SIGNALING_SECRET)=' .env
 > (the `Caddyfile` already proxies `/standalone-signaling` to the signaling
 > container on `:8081`).
 
+Copy the **completed example** below and edit **only the underlined parts** - the
+secret and the domain. The angle brackets are **never typed**; they only mark
+"put your value here":
+
 ```bash
 docker exec -u www-data nextcloud-app php occ talk:signaling:add \
   "wss://<NC_DOMAIN>/standalone-signaling" <SIGNALING_SECRET> --verify
 ```
 
-- Replace `<NC_DOMAIN>` with the domain from step 2 (e.g.
-  `wss://mis-server.tail204a2d.ts.net/standalone-signaling`).
-- Replace `<SIGNALING_SECRET>` with the actual secret from step 2 (e.g.
-  `X9wVE4b8/...` - no angle brackets, no quotes).
+**Filled-in example** (domain `mis-server.tail204a2d.ts.net`, secret
+`X9wVE4b8/teDicCr1BR2e6WFFrv+hU+KxGxpFxBBYT8=`). Copy it, swap in **your**
+domain and **your** secret from step 2, and run:
+
+```bash
+docker exec -u www-data nextcloud-app php occ talk:signaling:add \
+  "wss://mis-server.tail204a2d.ts.net/standalone-signaling" \
+  "X9wVE4b8/teDicCr1BR2e6WFFrv+hU+KxGxpFxBBYT8=" \
+  --verify
+```
+
+- **No angle brackets** around the secret - paste the value itself (wrap it in
+  double quotes, as it contains `/` and `+` which the shell would otherwise
+  split on).
+- The three argument parts are in **this exact order**: the `wss://…` URL, then
+  the secret, then `--verify`.
 - `--verify` validates the SSL certificate (correct for real TLS). For an
   internal-only HTTP setup, set `SKIP_VERIFY=true` on the signaling service and
   omit `--verify`.
@@ -418,11 +442,32 @@ docker exec -u www-data nextcloud-app php occ talk:signaling:list
 
 ### 11.3 Register TURN
 
+> Argument order is: **schemes, then server, then `udp,tcp`, then `--secret=`.
+> The `--secret=` value has no space after the `=` and no angle brackets.**
+
 ```bash
 # schemes: `turn` (or `turn,turns`); protocols: `udp,tcp`; --secret = TURN_SECRET
 docker exec -u www-data nextcloud-app php occ talk:turn:add \
-  turn <NC_DOMAIN> udp,tcp --secret=<TURN_SECRET>
+  turn # # #  # # --secret=# # #    # <-- template; fill in below
+```
 
+Same idea as 11.2 - copy the filled-in example and swap in your domain and TURN
+secret:
+
+```bash
+docker exec -u www-data nextcloud-app php occ talk:turn:add \
+  turn mis-server.tail204a2d.ts.net udp,tcp \
+  --secret=X9wVE4b8/teDicCr1BR2e6WFFrv+hU+KxGxpFxBBYT8=
+```
+
+- `schemes` = `turn` (TURN only) or `turn,turns` (TURN + TURNS over TLS).
+- `server` = the plain domain - **no scheme** (e.g. `mis-server.tail204a2d.ts.net`,
+  not `https://…`).
+- `--secret=` value goes **directly after the `=`**, no space, no angle brackets.
+
+Verify with:
+
+```bash
 docker exec -u www-data nextcloud-app php occ talk:turn:list
 ```
 
