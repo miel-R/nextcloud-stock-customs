@@ -15,6 +15,7 @@ A stock Nextcloud Docker stack sized for ~400 users: `nextcloud:stable-fpm` (PHP
 | [Quick start](#quick-start) | Bring the stack up on a fresh host |
 | [Configuration](#configuration) | `.env` and `config/` reference |
 | [Networking / TLS / domain](#networking--tls--domain) | Reverse proxy options, domain provider, Cloudflare caveats |
+| [Routing / subdomains](ROUTING.md) | How a request reaches the apps, and how to route Nextcloud + n8n on subdomains |
 | [Database](#database) | Standalone Postgres/Redis project + managed-cloud migration |
 | [Scaling](#scaling) | Horizontal app replicas + honest autoscaling notes |
 | [Backups](#backups) | DB + file backup / restore |
@@ -102,6 +103,9 @@ a 400-user rollout. See [NETWORKING.md](NETWORKING.md) for the full comparison:
 Recommended domain provider: **Cloudflare Registrar + DNS** (often DNS-only /
 grey cloud for large uploads). See NETWORKING.md for exact `.env` + `Caddyfile` +
 `compose.yaml` changes per option.
+
+How a request flows through the stack and how to serve multiple subdomains (e.g.
+Nextcloud and n8n) on one host: [ROUTING.md](ROUTING.md).
 
 ## Database (standalone)
 
