@@ -20,7 +20,7 @@ starts, so finish the **DNS / TLS choice (step 6) before first start**.
 
 | Project | File | Services | Starts |
 | --- | --- | --- | --- |
-| `nextcloud-database` | `compose.db.yaml` | `nextcloud-db`, `nextcloud-redis` | **1st (always)** |
+| `db-services` | `compose.db.yaml` | `nextcloud-db`, `nextcloud-redis` | **1st (always)** |
 | `nextcloud-stack` | `compose.yaml` | `nextcloud-app`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | 2nd |
 
 Both connect over the single external network `nextcloud-network`.
@@ -494,7 +494,7 @@ touching the database, and Talk TURN relay can be turned on with an overlay.
 
 | File | Project | What it runs | When to `up` it |
 | --- | --- | --- | --- |
-| `compose.db.yaml` | `nextcloud-database` | PostgreSQL (`nextcloud-db`) + Redis (`nextcloud-redis`) — **singletons** | Always first |
+| `compose.db.yaml` | `db-services` | PostgreSQL (`nextcloud-db`) + Redis (`nextcloud-redis`) — **singletons** | Always first |
 | `compose.yaml` | `nextcloud-stack` | `nextcloud-app` (PHP-FPM), `nextcloud-nginx`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | Always second |
 | `compose.turn.yaml` (override) | `nextcloud-stack` (merged into `compose.yaml`) | TURN **relay** UDP port range for media | Only on native Linux, only if clients need a real relay |
 

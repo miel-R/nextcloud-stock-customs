@@ -1,4 +1,4 @@
-name: nextcloud-database
+name: db-services
 
 # ============================================================================
 # Standalone stateful services (PostgreSQL + Redis) shared by ALL replicas of

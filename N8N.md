@@ -19,7 +19,7 @@ in its **own Compose project (`n8n_stack`, `compose.n8n.yaml`)** but uses the
 │   │   database  n8n          (owned by n8n user)   <- same instance │      │
 │   └─────────────────────────────────────────────────────────────────┘      │
 │                                                                             │
-│   project: nextcloud-database   (compose.db.yaml)                           │
+│   project: db-services        (compose.db.yaml)                           │
 │     └─ nextcloud-db, nextcloud-redis                                       │
 │                                                                             │
 │   project: nextcloud          (compose.yaml)                                │

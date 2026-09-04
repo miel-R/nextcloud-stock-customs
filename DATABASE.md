@@ -6,7 +6,7 @@
 # Standalone database and Redis project
 
 PostgreSQL and Redis run as their own Compose project (`compose.db.yaml`, project
-name `nextcloud-database`) so the web tier can scale up and down freely.
+name `db-services`) so the web tier can scale up and down freely.
 
 ## Why this layout
 
@@ -21,7 +21,7 @@ name `nextcloud-database`) so the web tier can scale up and down freely.
 
 | Project | File | Project name | Services | Owns volume |
 | --- | --- | --- | --- | --- |
-| Database | `compose.db.yaml` | `nextcloud-database` | `nextcloud-db`, `nextcloud-redis` | `nextcloud_db` |
+| Database | `compose.db.yaml` | `db-services` | `nextcloud-db`, `nextcloud-redis` | `nextcloud_db` |
 | Web tier | `compose.yaml` | `nextcloud-stack` | `nextcloud-app`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | `nextcloud_www`, `caddy_*` |
 
 Both projects join the same external network `nextcloud-network`; the app
