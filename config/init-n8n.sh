@@ -16,9 +16,9 @@
 set -euo pipefail
 
 # --- n8n role + database ---
-: "${N8N_DB_NAME:-n8n}"
-: "${N8N_DB_USER:-n8n}"
-: "${N8N_DB_PASSWORD:-$POSTGRES_PASSWORD}"
+: "${N8N_DB_NAME:=n8n}"
+: "${N8N_DB_USER:=n8n}"
+: "${N8N_DB_PASSWORD:=$POSTGRES_PASSWORD}"
 
 if ! psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
         -tAc "SELECT 1 FROM pg_roles WHERE rolname='$N8N_DB_USER'" | grep -q 1; then
