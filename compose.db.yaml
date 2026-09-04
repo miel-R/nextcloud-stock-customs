@@ -1,14 +1,16 @@
 name: db-services
 
 # ============================================================================
-# Standalone stateful services (PostgreSQL + Redis) shared by ALL replicas of
-# the app stack (compose.yaml).
+# Standalone stateful services + the shared reverse proxy.
+#   - PostgreSQL + Redis (shared by ALL replicas of the app stack = compose.yaml)
+#   - nextcloud-nginx (the single reverse proxy fronting the Nextcloud PHP tier)
 #
 # WHY a separate project:
 #   - the app tier scales up/down freely: docker compose up -d --scale nextcloud-app=3
 #   - the database is a SINGLE shared instance - it must never be scaled, and
 #     scaling the app tier can never create a second Postgres.
-#   - `docker compose down` (app stack) never stops the database or Redis.
+#   - nginx is a SINGLETON (never scaled) - it lives with the other singletons.
+#   - `docker compose down` (app stack) never stops the database, Redis or nginx.
 #   - backups/upgrades of stateful services are isolated from the web tier.
 #
 # Start this FIRST, then the app stack:
@@ -16,7 +18,7 @@ name: db-services
 #     docker compose up -d
 #
 # The app connects over the shared external network `nt_n8n_network`.
-# Data volume `nextcloud_db` persists across both projects.
+# Data volume `db-services` persists across both projects.
 # Start/stop and the managed-cloud migration path: see DATABASE.md
 # ============================================================================
 
@@ -105,6 +107,39 @@ services:
           memory: ${REDIS_MEM_RES:-256M}
           cpus: "${REDIS_CPUS_RES:-0.5}"
 
+  # ------------------------------------------------------------
+  # NGINX reverse proxy - shared sidecar fronting the Nextcloud PHP-FPM tier.
+  #     Lives in db-services so the single nginx/singleton pattern is kept
+  #     alongside the other singletons (postgres-db, nextcloud-redis).
+  #     Serves static files from the shared webroot and proxies PHP to
+  #     nextcloud-app:9000. Caddy proxies to this on :80.
+  #     NOTE: nginx serves Nextcloud ONLY. n8n does NOT route through it.
+  # ------------------------------------------------------------
+  nextcloud-nginx:
+    image: nginx:1.27-alpine
+    container_name: nextcloud-nginx
+    restart: unless-stopped
+    volumes:
+      - nextcloud:/var/www/html:ro
+      - ./config/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/status.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - nt_n8n_network
+    oom_score_adj: 500
+    deploy:
+      resources:
+        limits:
+          memory: ${NGINX_MEM_LIMIT:-256M}
+          cpus: "${NGINX_CPUS_LIMIT:-1}"
+        reservations:
+          memory: ${NGINX_MEM_RES:-128M}
+          cpus: "${NGINX_CPUS_RES:-0.5}"
+
 networks:
   nt_n8n_network:
     external: true
@@ -112,4 +147,6 @@ networks:
 
 volumes:
   db:
-    name: nextcloud_db
+    name: db-services
+  nextcloud:
+    name: nextcloud_www

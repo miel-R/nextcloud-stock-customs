@@ -9,7 +9,7 @@ name: n8n_stack
 #     started/stopped/upgraded on its own.
 #   - it still reaches the single shared Postgres (`postgres-db`) over the
 #     external `nt_n8n_network` - the n8n database lives in the same
-#     `nextcloud_db` volume (separate database + role, owned independently).
+#     `db-services` volume (separate database + role, owned independently).
 #   - `docker compose -f compose.db.yaml down` never touches n8n, and vice versa
 #     `docker compose -f compose.n8n.yaml down` never stops the database.
 #

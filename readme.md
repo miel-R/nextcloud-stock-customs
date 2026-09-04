@@ -30,7 +30,7 @@ A stock Nextcloud Docker stack sized for ~400 users: `nextcloud:stable-fpm` (PHP
 | `postgres-db` | `postgres:16-alpine` | Database - standalone project (`compose.db.yaml`) |
 | `nextcloud-redis` | `redis:alpine` | PHP sessions, distributed cache, file locking - standalone project |
 | `nextcloud-app` | `nextcloud:stable-fpm` | Nextcloud PHP-FPM (scalable, no host ports; pool auto-scales with `APP_MEM_LIMIT`) |
-| `nextcloud-nginx` | `nginx:1.27-alpine` | Serves static files + proxies PHP to `nextcloud-app:9000` (AIO-style runtime model) |
+| `nextcloud-nginx` | `nginx:1.27-alpine` | Serves static files + proxies PHP to `nextcloud-app:9000` (AIO-style runtime model). Singleton - lives in `compose.db.yaml` alongside the other singletons |
 | `nextcloud-cron` | `nextcloud:stable` | Background jobs via the official `/cron.sh` |
 | `signaling` | `strukturag/nextcloud-spreed-signaling:2.1.1` | Optional Talk standalone signaling server (backend-authorised, no webroot mount) |
 | `turn` | `eturnal/eturnal:1.12.2` | Optional STUN/TURN relay for Talk clients behind restrictive NATs |
@@ -42,7 +42,7 @@ Everything connects over the external Docker network `nt_n8n_network`:
 docker network create nt_n8n_network   # one time, before first up
 ```
 
-Named volumes: `nextcloud_db` (Postgres - owned by the database project), `nextcloud_www` (Nextcloud webroot + data), `caddy_data` / `caddy_config`. The stack is split into two Compose projects - see [Database](#database).
+Named volumes: `db-services` (Postgres - owned by the database project), `nextcloud_www` (Nextcloud webroot + data), `caddy_data` / `caddy_config`. The stack is split into two Compose projects - see [Database](#database).
 
 ## Quick start
 

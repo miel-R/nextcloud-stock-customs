@@ -20,10 +20,10 @@ in its **own Compose project (`n8n_stack`, `compose.n8n.yaml`)** but uses the
 │   └─────────────────────────────────────────────────────────────────┘      │
 │                                                                             │
 │   project: db-services        (compose.db.yaml)                           │
-│     └─ postgres-db, nextcloud-redis                                       │
+│     └─ postgres-db, nextcloud-redis, nextcloud-nginx                       │
 │                                                                             │
 │   project: nextcloud          (compose.yaml)                                │
-│     └─ nextcloud-nginx / nextcloud-app / ... (web tier)                     │
+│     └─ nextcloud-app / nextcloud-cron / ... (web tier)                      │
 │                                                                             │
 │   project: n8n_stack          (compose.n8n.yaml)   <- SEPARATE project      │
 │     └─ n8n (127.0.0.1:5678 -> loopback only)                                │
@@ -206,11 +206,12 @@ POSTGRES_PASSWORD=<the same value used everywhere>
 
 `config/init-n8n.sh` is mounted into `/docker-entrypoint-initdb.d/`. The stock
 postgres image runs **everything in that folder exactly once**, on the **first
-`up` against an EMPTY data directory**. After that first boot the `nextcloud_db`
+`up` against an EMPTY data directory**. After that first boot the `db-services`
 volume is "initialized" and the init scripts are **never run again**.
 
 So the `n8n` role/database are created automatically **only** when the
-`nextcloud_db` volume is brand new. On an **existing** install (which is your
+`db-services`
+volume is brand new. On an **existing** install (which is your
 normal case — you must NOT destroy the volume to keep Nextcloud data), the role
 must be created manually. n8n failing with
 `password authentication failed for user "n8n"` is the classic symptom of that.
@@ -219,7 +220,7 @@ Decide which case you're in before starting n8n:
 
 | Situation | n8n role/db created how? |
 | --- | --- |
-| Brand-new `nextcloud_db` volume (first ever deploy) | Automatic via `init-n8n.sh` |
+| Brand-new `db-services` volume (first ever deploy) | Automatic via `init-n8n.sh` |
 | Existing volume / re-deploy / re-clone (data preserved) | **Manual** (see next) |
 
 ### Path A — fresh volume: automatic
@@ -273,7 +274,7 @@ existing volume it never runs again anyway.
 ## 1b. Redeploy / reconnect without data loss (procedure)
 
 When you re-deploy the whole stack (re-clone, new machine, compose re-up) you
-**keep** the `nextcloud_db` volume — recreating it would wipe Nextcloud's data.
+**keep** the `db-services` volume — recreating it would wipe Nextcloud's data.
 Because the init script only runs on a fresh volume, you must re-establish the
 n8n connection manually. Follow this order every time:
 
@@ -398,7 +399,7 @@ public Funnel) to finish the n8n setup wizard.
 ## 4. Deploy both Nextcloud and n8n — full runbook (from scratch on Ubuntu)
 
 Applies to a **clean host** (or a host where you do not mind the Postgres
-volume being recreated). If the `nextcloud_db` volume already exists, follow
+volume being recreated). If the `db-services` volume already exists, follow
 **section 1 → Path B** (or the `1b. Redeploy` procedure) for the manual
 provisioning instead of the automatic init-script path.
 
@@ -500,7 +501,7 @@ in the same Postgres.
   to the tailnet (preferred: reach it at `http://<host>:5678` from a Tailnet
   client while remaining unreachable to the internet) or funnel a **second**
   tailnet hostname to it — do not rely on `/n8n/` on the shared domain.
-- **Backups.** n8n's Postgres data lives in the same `nextcloud_db` volume as
+- **Backups.** n8n's Postgres data lives in the same `db-services` volume as
   Nextcloud's. Before/after this change, confirm your backup (BACKUP.md) covers
   it. n8n's own config/workflows also persist in `./n8n_data` (a bind mount),
   which is outside the container and covered by the same host backup.

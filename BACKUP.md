@@ -2,7 +2,7 @@
 
 Two things make up a Nextcloud instance in this stack:
 
-1. **Database** - volume `nextcloud_db` (PostgreSQL)
+1. **Database** - volume `db-services` (PostgreSQL)
 2. **Files** - volume `nextcloud_www` (Nextcloud webroot, `data/`, config, apps)
 
 Redis and Caddy state are disposable (sessions/cache/config can be rebuilt).

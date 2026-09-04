@@ -1,13 +1,12 @@
 #!/bin/bash
 # Create the n8n database + login role inside the SAME Postgres instance that
 # serves Nextcloud. Runs only ONCE, on the first initialization of the
-# nextcloud_db volume (postgres runs /docker-entrypoint-initdb.d/*.sh exactly
+# db-services volume (postgres runs /docker-entrypoint-initdb.d/*.sh exactly
 # once on an empty data dir).
 #
 # The n8n role is a SEPARATE role ("n8n") but, by default, uses the same
 # password string as the stock nextcloud role (POSTGRES_PASSWORD) - no separate
-# n8n password is required. Override by setting N8N_DB_PASSWORD if you want a
-# distinct credential.
+# n8n password is required.
 #
 # n8n then connects with (see the n8n service in compose.n8n.yaml):
 #   DB_POSTGRESDB_HOST=postgres-db

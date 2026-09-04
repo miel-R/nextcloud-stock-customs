@@ -21,7 +21,7 @@ name `db-services`) so the web tier can scale up and down freely.
 
 | Project | File | Project name | Services | Owns volume |
 | --- | --- | --- | --- | --- |
-| Database | `compose.db.yaml` | `db-services` | `postgres-db`, `nextcloud-redis` | `nextcloud_db` |
+| Database | `compose.db.yaml` | `db-services` | `postgres-db`, `nextcloud-redis`, `nextcloud-nginx` | `db-services` |
 | Web tier | `compose.yaml` | `nextcloud-stack` | `nextcloud-app`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | `nextcloud_www`, `caddy_*` |
 
 Both projects join the same external network `nt_n8n_network`; the app
@@ -55,14 +55,14 @@ the same project:
 # 1. stop the old app stack (this also stops its db/redis containers; data is safe)
 docker-compose down   # or: docker compose down
 
-# 2. start the new standalone stateful project (reuses the same volume `nextcloud_db`)
+# 2. start the new standalone stateful project (reuses the same volume `db-services`)
 docker compose -f compose.db.yaml up -d
 
 # 3. start the new app stack
 docker compose up -d
 ```
 
-The named volume `nextcloud_db` is reused as-is, so existing data stays intact.
+The named volume `db-services` is reused as-is, so existing data stays intact.
 
 ## Rules
 

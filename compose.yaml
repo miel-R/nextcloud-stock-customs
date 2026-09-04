@@ -10,8 +10,9 @@ name: nextcloud-stack
 #   turn             STUN/TURN relay for Talk (stock, optional)
 #   caddy             Reverse proxy (HTTP :80 here; TLS via Tailscale funnel)
 #
-# Stateful services (PostgreSQL + Redis) live in a SEPARATE project so the app
-# tier can scale up/down without ever touching or duplicating them:
+# Stateful services + the shared reverse proxy (PostgreSQL, Redis, nginx) live
+# in a SEPARATE project so the app tier can scale up/down without ever touching
+# or duplicating them:
 #     docker compose -f compose.db.yaml up -d        (see DATABASE.md)
 #
 # SCALING (see SCALING.md):
@@ -102,38 +103,6 @@ services:
         reservations:
           memory: ${APP_MEM_RES:-1G}
           cpus: "${APP_CPUS_RES:-1}"
-
-  # ------------------------------------------------------------
-  # 1b. NGINX fronting the PHP-FPM app (stock, AIO-style runtime model).
-  #     Serves static files and proxies PHP to nextcloud-app:9000. Caddy's
-  #     nextcloud-app:80 target changes to nextcloud-nginx:80.
-  # ------------------------------------------------------------
-  nextcloud-nginx:
-    image: nginx:1.27-alpine
-    container_name: nextcloud-nginx
-    restart: unless-stopped
-    depends_on:
-      - nextcloud-app
-    volumes:
-      - nextcloud:/var/www/html:ro
-      - ./config/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/status.php"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    networks:
-      - nt_n8n_network
-    oom_score_adj: 500
-    deploy:
-      resources:
-        limits:
-          memory: ${NGINX_MEM_LIMIT:-256M}
-          cpus: "${NGINX_CPUS_LIMIT:-1}"
-        reservations:
-          memory: ${NGINX_MEM_RES:-128M}
-          cpus: "${NGINX_CPUS_RES:-0.5}"
 
   # ------------------------------------------------------------
   # 2. DEDICATED CRON CONTAINER (official /cron.sh -> busybox crond -f)

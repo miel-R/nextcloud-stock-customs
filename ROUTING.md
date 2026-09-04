@@ -288,7 +288,7 @@ apps to one proxy for no gain.
 - **Placeholder hostnames** - the examples use `n8n.example.com`; replace with
   your real subdomain before it will resolve.
 - **`password authentication failed for user "n8n"`** means the n8n role/db
-  were never created on an existing `nextcloud_db` volume - see `N8N.md`
+  were never created on an existing `db-services` volume - see `N8N.md`
   section 1 / 1b.
 
 ---
