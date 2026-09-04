@@ -117,7 +117,7 @@ services:
   # ------------------------------------------------------------
   proxy-nginx:
     image: nginx:1.27-alpine
-    container_name: nextcloud-nginx
+    container_name: proxy-nginx
     restart: unless-stopped
     volumes:
       - nextcloud:/var/www/html:ro
