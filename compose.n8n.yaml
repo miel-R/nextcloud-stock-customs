@@ -42,11 +42,13 @@ services:
     image: docker.n8n.io/n8nio/n8n:latest
     container_name: n8n_email_summarizer
     restart: unless-stopped
-    # Loopback only by default - NOT exposed to the internet / Funnel. Reach it
-    # on this host, or over the tailnet via this host's tailnet IP.
-    # For public exposure via Caddy, comment the ports: line out so the container
-    # is reachable only on the docker network (nextcloud-network) by Caddy, and
-    # set N8N_HOST/N8N_PROTOCOL below so n8n emits links with the public URL.
+    # Loopback only by default - NOT exposed to the internet / Funnel. Reach it on
+    # this host at http://localhost:5678, or over the tailnet via this host's
+    # tailnet IP.
+    # The shared nginx also reaches this container over nextcloud-network as
+    # n8n_email_summarizer:5678 (that is how the nginx n8n server_name block
+    # proxies to it for n8n.example.com). The loopback port is for local testing
+    # only; it is not reachable by the Funnel/browser.
     ports:
       - "127.0.0.1:5678:5678"
     environment:
@@ -54,8 +56,8 @@ services:
       - NODE_ENV=production
       # WebSocket push for the editor (newer n8n prefers this over sse).
       - N8N_PUSH_BACKEND=websocket
-      # Public URL n8n emits (used when proxied by Caddy). Defaults empty ->
-      # n8n uses the inbound request; set these on a public Caddy setup.
+      # Public URL n8n emits. Set N8N_HOST/N8N_PROTOCOL/N8N_PORT in .env when
+      # n8n.example.com is served by the shared nginx, so n8n links use that URL.
       - N8N_HOST=${N8N_HOST:-}
       - N8N_PROTOCOL=${N8N_PROTOCOL:-https}
       - N8N_PORT=${N8N_PORT:-5678}
