@@ -60,4 +60,11 @@ php_admin_flag[log_errors] = on
 EOF
 
 echo "PHP-FPM pool: pm=${APP_FPM_PM} max_children=${APP_FPM_MAX_CHILDREN} (mem_limit=${APP_MEM_LIMIT})"
-exec /usr/local/bin/docker-php-entrypoint php-fpm
+# Hand off to the OFFICIAL nextcloud docker-entrypoint.sh (NOT
+# docker-php-entrypoint). Passing `php-fpm` as its first arg triggers Nextcloud's
+# own initialization: rsyncing /usr/src/nextcloud into /var/www/html on an empty
+# volume (without which the webroot stays empty and nginx returns 403), rendering
+# config.php from the env, and - when admin + DB creds are set on first boot - a
+# fully automated installation. It then `exec php-fpm`, which reads the pool
+# config we rendered above.
+exec /docker-entrypoint.sh php-fpm

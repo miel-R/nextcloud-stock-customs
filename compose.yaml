@@ -54,7 +54,9 @@ services:
     # (a fixed container_name conflicts with --scale).
     restart: unless-stopped
     # Wrapper entrypoint renders /usr/local/etc/php-fpm.d/zz-pool.conf from the
-    # container env so pm.max_children auto-scales with APP_MEM_LIMIT.
+    # container env so pm.max_children auto-scales with APP_MEM_LIMIT, then hands
+    # off to the OFFICIAL /docker-entrypoint.sh php-fpm so Nextcloud's own first
+    # boot logic runs (webroot from /usr/src/nextcloud, config.php, auto-install).
     # Invoked via bash (not directly) so a bind-mounted script does not need its
     # exec bit set - Docker Desktop/Windows bind mounts can drop it.
     entrypoint: ["/bin/bash", "/fpm-entrypoint.sh"]
