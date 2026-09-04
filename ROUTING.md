@@ -7,7 +7,11 @@
 
 How a browser request travels through this stack, which component does what, and
 how to route **multiple subdomains to one host** (e.g. Nextcloud *and* n8n behind
-a single reverse proxy / funnel).
+a single reverse proxy edge).
+
+For the two ways the public request can reach this host - Tailscale Funnel, or
+open ports straight to Caddy (no Funnel) - see
+[Edge options](#edge-options-tailscale-funnel-vs-open-ports-no-funnel).
 
 ---
 
@@ -17,20 +21,21 @@ a single reverse proxy / funnel).
    browser (type a hostname, e.g. nextcloud.example.com)
 
         ▼
-┌──────────────────── TAILSCALE (Funnel) ────────────────────┐
-│  • assigns the hostname (MagicDNS)                         │
-│  • terminates TLS (https)                                  │
-│  • forwards the decrypted request on :80 to this host's     │
-│    Caddy                                                    │
-└──────────────────────────┬─────────────────────────────────┘
-                           ▼  (plain HTTP, still carrying the Host header)
-┌──────────────────── CADDY (single edge, :80) ──────────────┐
-│  • entry point into the Docker stack                       │
-│  • routes by URL *path*:                                   │
-│       /standalone-signaling/*  → nextcloud-signaling:8081  │
-│       everything else         → nextcloud-nginx:80         │
-│  • gzip compression + static-asset caching headers         │
-└──────────────────────────┬─────────────────────────────────┘
+┌──────────────────── EDGE - choose ONE ──────────────────────┐
+│  A) TAILSCALE (Funnel): names the host, terminates TLS,     │
+│     forwards decrypted HTTP on :80 to Caddy                 │
+│  B) OPEN PORTS (no Funnel): browser goes through your       │
+│     router straight to Caddy; Caddy terminates TLS (:443)   │
+└──────────────────────────┬──────────────────────────────────┘
+                           ▼  (HTTP, still carrying the Host header)
+┌──────────────────── CADDY (single edge) ────────────────────┐
+│  • entry point into the Docker stack (:80, or :443 when it  │
+│    terminates TLS itself for the open-ports case)           │
+│  • routes by URL *path*:                                    │
+│       /standalone-signaling/*  → nextcloud-signaling:8081   │
+│       everything else         → nextcloud-nginx:80          │
+│  • gzip compression + static-asset caching headers          │
+└──────────────────────────┬──────────────────────────────────┘
                            ▼
 ┌──────────────────── NGINX (nextcloud-nginx) ───────────────┐
 │  • serves Nextcloud static files from the shared webroot   │
@@ -118,6 +123,76 @@ A  *.example.com         → <this host public IP>
 
 See also `N8N.md` → "Tailscale does NOT create per-node subdomains" for the
 reason MagicDNS can't replace this.
+
+---
+
+## Edge options: Tailscale Funnel vs open ports (no Funnel)
+
+How the public request reaches this host depends on whether you use **Tailscale
+Funnel** or you **open ports** on your router/firewall directly at Caddy.
+Both end the same way: HTTP on `:80` into Caddy, then nginx. Pick one.
+
+| | Tailscale Funnel | Open ports (no Funnel) |
+| --- | --- | --- |
+| Needs a public IP | No - works behind CGNAT | Yes - you open/forward ports |
+| TLS | Tailscale terminates HTTPS | Caddy terminates HTTPS (Let's Encrypt) |
+| Ports exposed | :443 and :80 only | :443 + :80 (and :3478 UDP/TCP for TURN) |
+| Hostname | Tailscale MagicDNS `<node>.ts.net` | Your own domain → Caddy |
+| Setup | `tailscale funnel` on the node | Open ports + Caddy `tls` auto-HTTPS |
+
+### Option E1 - Tailscale Funnel (used in this guide's default)
+
+- Your host has no open inbound ports; Tailscale's servers relay/Funnel public
+  traffic to it.
+- Exposes the funnel node's hostname; decrypted HTTP reaches Caddy on `:80`.
+- **No subdomains** - gets only the one node hostname (see the DNS section for
+  getting a second app hostname via your own domain).
+
+### Option E2 - Open ports / direct (no Funnel)
+
+When you **are** port-forwarding (a public IP, or you don't use Tailscale), the
+browser goes straight to your router → Caddy:
+
+- **Forward these ports** to this host:
+  - `80` (HTTP, redirect/ACME)
+  - `443` (HTTPS)
+  - `3478` **TCP + UDP** (only if using eturnal TURN for Talk)
+  - *(the 16k TURN relay range: only if `compose.turn.yaml` is applied - see
+    `INSTALL.md`)*
+- **Caddy terminates TLS itself** with Let's Encrypt. Point your domain records
+  (`A`/`AAAA`) at this host's **public IP** (see the DNS section), and change the
+  Caddy site from `:80` to `:443` with `tls` so it issues certs:
+
+```caddyfile
+nextcloud.example.com {
+    encode gzip
+
+    handle_path /standalone-signaling/* {
+        reverse_proxy nextcloud-signaling:8081
+    }
+    handle {
+        reverse_proxy nextcloud-nginx:80 { ... }
+    }
+}
+
+n8n.example.com {
+    reverse_proxy n8n-n8n-1:5678 { ... }
+}
+```
+
+- Run Nextcloud with HTTPS on: set `OVERWRITEPROTOCOL=https` and
+  `OVERWRITECLIURL=https://nextcloud.example.com` in `.env`, and add
+  `TRUSTED_PROXIES` for nothing extra here if Caddy terminates directly (see
+  `NETWORKING.md` for the exact `.env` changes).
+- **Port 80 must be free** on this host (stop apache2/nginx that hold `:80`).
+- Verify `ss -tlnp | grep -E ':80|:443'`.
+
+> With open ports you own the domain, so subdomain routing works exactly as in
+> "The router" below - the only difference is *who* terminates TLS (Caddy
+> instead of Tailscale).
+
+See `NETWORKING.md` for the full comparison (Caddy :443 + Let's Encrypt vs
+Tailscale Funnel vs Cloudflare Tunnel).
 
 ---
 
