@@ -33,13 +33,13 @@ open ports straight to Caddy (no Funnel) - see
 │    terminates TLS itself for the open-ports case)           │
 │  • routes by *path* and *Host*:                             │
 │       /standalone-signaling/*  → nextcloud-signaling:8081   │
-│       nextcloud.example.com    → nextcloud-nginx:80         │
+│       nextcloud.example.com    → proxy-nginx:80         │
 │       n8n.example.com          → n8n-n8n-1:5678 (direct)    │
 │  • gzip compression + static-asset caching headers          │
 └──────────────────────┬──────────────┬──────────────────────┘
                        ▼              ▼
 ┌──────────────────────────────┐   ┌──────────────────────────┐
-│ NGINX (nextcloud-nginx)      │   │ n8n (built-in Node server)│
+│ NGINX (proxy-nginx)      │   │ n8n (built-in Node server)│
 │  serves static + PHP         │   │  no nginx in front        │
 │  └─ nextcloud-app:9000 (FPM) │   └──────────────────────────┘
 └──────────────────────────────┘
@@ -66,12 +66,12 @@ The request keeps its **`Host` header** the whole way; the layer that decides
 
 - The **single reverse-proxy entry** into the stack, listening on **:80**.
 - Routes by **URL path**: `/standalone-signaling/*` → the Talk signaling server;
-  everything else → `nextcloud-nginx`.
+  everything else → `proxy-nginx`.
 - Adds **gzip** and **static caching**.
 - Currently a flat `:80` site (does not split by hostname). The hostname split
   lives in nginx (below).
 
-### nginx (`nextcloud-nginx`)
+### nginx (`proxy-nginx`)
 
 - The **workhorse for the web tier**.
 - Serves **static files** directly from the shared Nextcloud webroot (fast, no
@@ -166,7 +166,7 @@ nextcloud.example.com {
         reverse_proxy nextcloud-signaling:8081
     }
     handle {
-        reverse_proxy nextcloud-nginx:80 { ... }
+        reverse_proxy proxy-nginx:80 { ... }
     }
 }
 
@@ -193,11 +193,11 @@ Tailscale Funnel vs Cloudflare Tunnel).
 
 ## The router: nginx serves Nextcloud only - n8n is separate
 
-**`nextcloud-nginx` serves Nextcloud ONLY.** n8n does **not** route through it.
-Reason: `nextcloud-nginx` exists to serve Nextcloud's static files and proxy its
+**`proxy-nginx` serves Nextcloud ONLY.** n8n does **not** route through it.
+Reason: `proxy-nginx` exists to serve Nextcloud's static files and proxy its
 PHP-FPM tier - it is Nextcloud-specific. n8n ships its **own built-in web server**
 (Node/Express) on `:5678`, so it needs no nginx in front of it. Mixing n8n into
-`nextcloud-nginx` would add pointless coupling and force n8n through Nextcloud's
+`proxy-nginx` would add pointless coupling and force n8n through Nextcloud's
 nginx tuning (`server_name` split, upload size) - no benefit.
 
 So each app keeps a dedicated path:
@@ -205,18 +205,18 @@ So each app keeps a dedicated path:
 ```
                  ┌──────────── Caddy (single edge) ────────────┐
                  │  /standalone-signaling → nextcloud-signaling │
- Host: nextcloud │  everything else       → nextcloud-nginx:80  │  (Nextcloud)
+ Host: nextcloud │  everything else       → proxy-nginx:80  │  (Nextcloud)
  Host: n8n.example│  n8n.example.com       → n8n-n8n-1:5678      │  (n8n,
                  └──────────────────────────────────────────────┘    direct)
                                │
-                     nextcloud-nginx  serves webroot + PHP → nextcloud-app
+                     proxy-nginx  serves webroot + PHP → nextcloud-app
                      n8n-n8n-1        built-in web server (no nginx)
 ```
 
 ### 1. Caddy - route n8n directly, not through nginx
 
 In `Caddyfile`, add a host-routed block that proxies n8n straight to its container
-(do **not** send it to `nextcloud-nginx`). Enable when the n8n hostname resolves:
+(do **not** send it to `proxy-nginx`). Enable when the n8n hostname resolves:
 
 ```caddyfile
 n8n.example.com {
@@ -230,7 +230,7 @@ n8n.example.com {
 }
 ```
 
-The default `:80` site keeps routing Nextcloud traffic to `nextcloud-nginx:80`.
+The default `:80` site keeps routing Nextcloud traffic to `proxy-nginx:80`.
 If you use one `:80` site, match n8n by `Host` (see `{@n8n} host {$N8N_DOMAIN}`
 in the Caddyfile) and `reverse_proxy n8n-n8n-1:5678`.
 
@@ -263,12 +263,12 @@ N8N_PORT=5678
 
 | Component | What it routes | Backend |
 | --- | --- | --- |
-| `nextcloud-nginx` | Nextcloud static + PHP | `nextcloud-app:9000` |
+| `proxy-nginx` | Nextcloud static + PHP | `nextcloud-app:9000` |
 | `caddy` | `n8n.example.com` (by hostname) | `n8n-n8n-1:5678` (direct) |
 
 **Why not route n8n through nginx:** nginx is the Nextcloud app's reverse proxy;
 n8n runs on its own Node server and only needs a simple host-header forward, done
-at the edge by Caddy. Routing n8n through `nextcloud-nginx` would couple the two
+at the edge by Caddy. Routing n8n through `proxy-nginx` would couple the two
 apps to one proxy for no gain.
 
 > n8n **must** be served at its own root (a real hostname), not a subpath like

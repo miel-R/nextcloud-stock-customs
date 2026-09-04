@@ -6,7 +6,7 @@ Goal: comfortably serve ~400 users and know exactly when and how to add capacity
 
 The app tier uses the AIO-style runtime model with stock images: **PHP-FPM** inside
 `nextcloud-app` renders all requests and auto-scales its worker pool (`pm`) to match
-`APP_MEM_LIMIT`, and a stock **nginx** sidecar (`nextcloud-nginx`) serves static files
+`APP_MEM_LIMIT`, and a stock **nginx** sidecar (`proxy-nginx`) serves static files
 and proxies PHP to `nextcloud-app:9000`. This replaces the old Apache+mod_php tier whose
 prefork worker-count env expansion was unreliable and serialized concurrent requests
 (the source of the "slow as hell" symptoms).
@@ -51,7 +51,7 @@ docker compose up -d --scale nextcloud-app=1
 raised on a <= 16 GB host: memory budget, not CPU, is what caps replicas. See
 [Scale on demand](#scale-on-demand--small-host-profile) below.
 
-Caddy proxies to the `nextcloud-app` sidecar `nextcloud-nginx`, which serves static files and
+Caddy proxies to the `nextcloud-app` sidecar `proxy-nginx`, which serves static files and
 proxies PHP to the FPM pool on `nextcloud-app:9000`. Docker's embedded DNS resolves
 `nextcloud-app` across every replica's IP, so FPM round-robins automatically - no Caddyfile
 change is needed. Replicas share the webroot volume; do not run `occ` from more than one container at a time.
@@ -107,7 +107,7 @@ physical RAM (plus the OS and the kernel page cache). The small presets in
 | Service | Limit | Notes |
 | --- | --- | --- |
 | nextcloud-app | 3G / auto pool (~20 children) | biggest single consumer; trimmed from 8G |
-| nextcloud-nginx | 256M | static file server + PHP proxy, stateless |
+| proxy-nginx | 256M | static file server + PHP proxy, stateless |
 | nextcloud-cron | 512M | background jobs only |
 | signaling | 1G | kept at full size - Talk is the priority |
 | turn | 512M | kept at full size - Talk is the priority |

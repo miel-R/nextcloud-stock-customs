@@ -21,7 +21,7 @@ name `db-services`) so the web tier can scale up and down freely.
 
 | Project | File | Project name | Services | Owns volume |
 | --- | --- | --- | --- | --- |
-| Database | `compose.db.yaml` | `db-services` | `postgres-db`, `nextcloud-redis`, `nextcloud-nginx` | `db-services` |
+| Database | `compose.db.yaml` | `db-services` | `postgres-db`, `nextcloud-redis`, `proxy-nginx` | `db-services` |
 | Web tier | `compose.yaml` | `nextcloud-stack` | `nextcloud-app`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | `nextcloud_www`, `caddy_*` |
 
 Both projects join the same external network `nt_n8n_network`; the app

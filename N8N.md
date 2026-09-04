@@ -20,7 +20,7 @@ in its **own Compose project (`n8n_stack`, `compose.n8n.yaml`)** but uses the
 │   └─────────────────────────────────────────────────────────────────┘      │
 │                                                                             │
 │   project: db-services        (compose.db.yaml)                           │
-│     └─ postgres-db, nextcloud-redis, nextcloud-nginx                       │
+│     └─ postgres-db, nextcloud-redis, proxy-nginx                       │
 │                                                                             │
 │   project: nextcloud          (compose.yaml)                                │
 │     └─ nextcloud-app / nextcloud-cron / ... (web tier)                      │
@@ -59,7 +59,7 @@ domain. Three realistic options, from simplest to most work:
 ### A. n8n internal-only (default here) — keep Nextcloud on the Funnel
 
 - Nextcloud is the only thing served at `https://<NC_DOMAIN>/` through the
-  Funnel (Caddy → `nextcloud-nginx`).
+  Funnel (Caddy → `proxy-nginx`).
 - n8n binds loopback (`127.0.0.1:5678`). Reach the wizard from a Tailnet client:
   `http://<this-host-tailnet-IP>:5678`, or with
   `ssh -L 5678:localhost:5678 <user>@<tailnet-ip>` then open localhost.

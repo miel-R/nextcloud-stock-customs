@@ -21,7 +21,7 @@ starts, so finish the **DNS / TLS choice (step 6) before first start**.
 
 | Project | File | Services | Starts |
 | --- | --- | --- | --- |
-| `db-services` | `compose.db.yaml` | `postgres-db`, `nextcloud-redis`, `nextcloud-nginx` | **1st (always)** |
+| `db-services` | `compose.db.yaml` | `postgres-db`, `nextcloud-redis`, `proxy-nginx` | **1st (always)** |
 | `nextcloud-stack` | `compose.yaml` | `nextcloud-app`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | 2nd |
 | `n8n_stack` | `compose.n8n.yaml` | `n8n` (profile-gated) | 3rd (only if installing n8n) |
 
@@ -497,7 +497,7 @@ touching the database, and Talk TURN relay can be turned on with an overlay.
 
 | File | Project | What it runs | When to `up` it |
 | --- | --- | --- | --- |
-| `compose.db.yaml` | `db-services` | PostgreSQL (`postgres-db`) + Redis (`nextcloud-redis`) + nginx (`nextcloud-nginx`) — **singletons** | Always first |
+| `compose.db.yaml` | `db-services` | PostgreSQL (`postgres-db`) + Redis (`nextcloud-redis`) + nginx (`proxy-nginx`) — **singletons** | Always first |
 | `compose.yaml` | `nextcloud-stack` | `nextcloud-app` (PHP-FPM), `nextcloud-cron`, `signaling`, `turn`, `caddy` | Always second |
 | `compose.turn.yaml` (override) | `nextcloud-stack` (merged into `compose.yaml`) | TURN **relay** UDP port range for media | Only on native Linux, only if clients need a real relay |
 
@@ -520,12 +520,12 @@ Volumes:
 The reverse proxy chain (nginx lives in `compose.db.yaml`, app in `compose.yaml`):
 
 ```
-client -> caddy (:80) -> nextcloud-nginx (:80) -> nextcloud-app PHP-FPM (:9000)
+client -> caddy (:80) -> proxy-nginx (:80) -> nextcloud-app PHP-FPM (:9000)
 ```
 
 - `caddy` — public edge (TLS upstream: Tailscale Funnel / external proxy), does
   gzip + static caching, routes `/standalone-signaling` to the HPB.
-- `nextcloud-nginx` (in `compose.db.yaml`) — stock nginx; serves static files
+- `proxy-nginx` (in `compose.db.yaml`) — stock nginx; serves static files
   from the webroot, does the Nextcloud rewrite rules/`.well-known`/OCS routing,
   security headers, and proxies PHP to the FPM pool. Its config is
   `config/nginx.conf`. It is a singleton (never scaled), so it lives with the
@@ -566,7 +566,7 @@ docker compose -f compose.n8n.yaml down
 docker compose up -d --scale nextcloud-app=2
 ```
 
-> **Never `--scale` `postgres-db`, `nextcloud-redis`, or `nextcloud-nginx`** —
+> **Never `--scale` `postgres-db`, `nextcloud-redis`, or `proxy-nginx`** —
 > those are singletons in `compose.db.yaml`; scaling the web tier is what the
 > split is for.
 

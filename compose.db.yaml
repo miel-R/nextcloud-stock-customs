@@ -3,7 +3,7 @@ name: db-services
 # ============================================================================
 # Standalone stateful services + the shared reverse proxy.
 #   - PostgreSQL + Redis (shared by ALL replicas of the app stack = compose.yaml)
-#   - nextcloud-nginx (the single reverse proxy fronting the Nextcloud PHP tier)
+#   - proxy-nginx (the single reverse proxy fronting the Nextcloud PHP tier)
 #
 # WHY a separate project:
 #   - the app tier scales up/down freely: docker compose up -d --scale nextcloud-app=3
