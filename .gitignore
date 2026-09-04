@@ -23,7 +23,9 @@
 .env
 .env.db
 
-# n8n runtime data (workflows/config bind mount) - never commit
+# n8n switch: compose now uses a Compose named volume (n8n_data), NOT a bind
+# mount, so no host dir needed. Keep ignoring any leftover ./n8n_data host dir
+# (from earlier bind-mount installs) so it is never committed.
 /n8n_data/
 
 

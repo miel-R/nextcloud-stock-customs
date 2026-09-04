@@ -70,7 +70,12 @@ services:
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:?err}
       - DB_POSTGRESDB_SCHEMA=public
     volumes:
-      - ./n8n_data:/home/node/.n8n
+      # Named volume (NOT a bind mount): a named volume is auto-owned by the
+      # image's user (node, UID 1000), so the n8n web server can write
+      # /home/node/.n8n without host-side permission errors (EACCES). A host
+      # bind mount (./n8n_data) inherits host ownership and fails on hosts
+      # where the directory is owned by root/another UID.
+      - n8n_data:/home/node/.n8n
     networks:
       - nt_n8n_network
 
@@ -78,3 +83,7 @@ networks:
   nt_n8n_network:
     external: true
     name: nt_n8n_network
+
+volumes:
+  n8n_data:
+    name: n8n_data

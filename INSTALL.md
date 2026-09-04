@@ -8,8 +8,9 @@ side by side so you can follow one to the end.
 projects, and they must come up in this order:
 
 1. the **shared network** (one-time) - `nt_n8n_network`
-2. the **stateful project** - `compose.db.yaml` (PostgreSQL + Redis) - ALWAYS FIRST
+2. the **stateful project** - `compose.db.yaml` (PostgreSQL + Redis + nginx) - ALWAYS FIRST
 3. the **app project** - `compose.yaml` (Nextcloud, cron, Talk signaling/TURN, Caddy)
+4. (optional) the **n8n project** - `compose.n8n.yaml` (only if installing n8n)
 
 Caddy is part of the app project (step 3). It reads the `Caddyfile` when it
 starts, so finish the **DNS / TLS choice (step 6) before first start**.
@@ -20,10 +21,12 @@ starts, so finish the **DNS / TLS choice (step 6) before first start**.
 
 | Project | File | Services | Starts |
 | --- | --- | --- | --- |
-| `db-services` | `compose.db.yaml` | `postgres-db`, `nextcloud-redis` | **1st (always)** |
+| `db-services` | `compose.db.yaml` | `postgres-db`, `nextcloud-redis`, `nextcloud-nginx` | **1st (always)** |
 | `nextcloud-stack` | `compose.yaml` | `nextcloud-app`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | 2nd |
+| `n8n_stack` | `compose.n8n.yaml` | `n8n` (profile-gated) | 3rd (only if installing n8n) |
 
-Both connect over the single external network `nt_n8n_network`.
+Both core projects connect over the single external network `nt_n8n_network`.
+n8n (when installed) joins the same network and reuses the shared `postgres-db`.
 
 ## 1. Sizing the host
 
@@ -498,17 +501,19 @@ touching the database, and Talk TURN relay can be turned on with an overlay.
 | `compose.yaml` | `nextcloud-stack` | `nextcloud-app` (PHP-FPM), `nextcloud-cron`, `signaling`, `turn`, `caddy` | Always second |
 | `compose.turn.yaml` (override) | `nextcloud-stack` (merged into `compose.yaml`) | TURN **relay** UDP port range for media | Only on native Linux, only if clients need a real relay |
 
-### 12.1 Two projects, one shared network
+### 12.1 Projects, one shared network
 
-Both projects connect over the single external network `nt_n8n_network`
-(created once, step 4). Containers in either project resolve each other by
-service name across the projects to that one network.
+The `db-services` and `nextcloud-stack` projects (and, when installed, the
+`n8n_stack` project) all connect over the single external network `nt_n8n_network`
+(created once, step 4). Containers in any project resolve each other by service
+name across the projects on that one network.
 
 Volumes:
 - `db-services` — PostgreSQL data (owned by `compose.db.yaml`)
 - `nextcloud_www` — Nextcloud webroot + data (shared read-write by app + cron,
   read-only by nginx)
 - `caddy_data` / `caddy_config` — Caddy config/state (owned by `compose.yaml`)
+- `n8n_data` — n8n config + workflows (owned by `compose.n8n.yaml`; named volume)
 
 ### 12.2 The app tier stacking (nginx + PHP-FPM)
 
@@ -536,8 +541,11 @@ client -> caddy (:80) -> nextcloud-nginx (:80) -> nextcloud-app PHP-FPM (:9000)
 
 ```bash
 # bring the whole thing up (the only "composite deploy" command pair)
-docker compose -f compose.db.yaml up -d          # 1) stateful ALWAYS first
-docker compose up -d --remove-orphans            # 2) app tier (incl. nginx, cron, Talk, caddy)
+docker compose -f compose.db.yaml up -d          # 1) stateful ALWAYS first (DB, Redis, nginx)
+docker compose up -d --remove-orphans            # 2) app tier (cron, Talk, caddy)
+
+# optional: install n8n (only when enabling it, see section 12.4)
+docker compose -f compose.n8n.yaml up -d         # 3) n8n (requires the DB project up)
 
 # optional TURN relay overlay (native Linux only)
 docker compose -f compose.yaml -f compose.turn.yaml up -d
@@ -545,18 +553,93 @@ docker compose -f compose.yaml -f compose.turn.yaml up -d
 # status / logs
 docker compose ps
 docker compose -f compose.db.yaml ps
+docker compose -f compose.n8n.yaml ps
 docker compose logs -f nextcloud-app
+docker compose -f compose.n8n.yaml logs -f n8n
 
 # stop (reverse order: app tier first, then stateful)
 docker compose down
 docker compose -f compose.db.yaml down
+docker compose -f compose.n8n.yaml down
 
 # scale the web tier (never scale the stateful tier)
 docker compose up -d --scale nextcloud-app=2
 ```
 
-> **Never `--scale` `postgres-db` or `nextcloud-redis`** — those are singletons
-> in `compose.db.yaml`; scaling the web tier is what the split is for.
+> **Never `--scale` `postgres-db`, `nextcloud-redis`, or `nextcloud-nginx`** —
+> those are singletons in `compose.db.yaml`; scaling the web tier is what the
+> split is for.
+
+## 12.4 Installing n8n (optional)
+
+n8n runs as its **own Compose project** (`compose.n8n.yaml`), sharing the same
+`postgres-db` and the `nt_n8n_network` network. It is profile-gated, so it only
+starts when you enable it.
+
+### a. Enable the n8n toggle
+
+In `.env` set:
+
+```bash
+N8N_INSTALL=true
+COMPOSE_PROFILES=n8n          # "" (empty) = n8n off; "n8n" = on
+```
+
+> `COMPOSE_PROFILES` is the operative switch; `N8N_INSTALL` is a human-readable
+> marker you keep in sync. See `.env.example` / [N8N.md](N8N.md).
+
+### b. Ensure the n8n role/database exist in Postgres
+
+On a **fresh** `db-services` volume, `config/init-n8n.sh` creates the `n8n`
+role + database automatically on first boot (the n8n role reuses
+`POSTGRES_PASSWORD` by default). On an **existing** install you must create them
+manually once — see [N8N.md](N8N.md) section 1 (Path B) / 1b.
+
+### c. Bring it up
+
+```bash
+docker compose -f compose.db.yaml up -d       # DB must be up first
+docker compose -f compose.n8n.yaml up -d      # starts n8n (profile: n8n)
+```
+
+Check it:
+
+```bash
+docker compose -f compose.n8n.yaml ps
+docker compose -f compose.n8n.yaml logs -f n8n
+```
+
+Open the n8n setup wizard at **`http://localhost:5678`** (loopback only by
+default — see [N8N.md](N8N.md) "Public exposure" to serve it on its own
+hostname via Caddy).
+
+### d. Troubleshooting n8n on Linux hosts
+
+If n8n logs a permission error on start:
+
+```
+EACCES: permission denied, open '/home/node/.n8n/config'
+```
+
+this is a **host bind-mount ownership** issue. The repo previously mounted
+`./n8n_data` — now it uses a **named volume** (`n8n_data`) that is auto-owned by
+the image's `node` user (UID 1000), which fixes this. If you still hit it on an
+old stack, remove the leftover host dir and recreate:
+
+```bash
+docker compose -f compose.n8n.yaml down
+rm -rf ./n8n_data            # only if it came from an older bind-mount install
+docker compose -f compose.n8n.yaml up -d
+```
+
+### e. Removing n8n later
+
+```bash
+docker compose -f compose.n8n.yaml down
+docker volume rm n8n_data     # optional - wipes n8n's config/workflows
+```
+
+Set `COMPOSE_PROFILES=` back in `.env` so n8n no longer starts.
 
 ## 13. Optional: extra app replica
 
@@ -574,10 +657,11 @@ Set up the daily backup described in [BACKUP.md](BACKUP.md) **before** onboardin
 
 ## 15. Everyday operations
 
-Stop (app tier first, then the database):
+Stop (app tier first, then the database; n8n separately):
 
 ```bash
 docker compose down          # app tier
+docker compose -f compose.n8n.yaml down   # n8n (if installed)
 docker compose -f compose.db.yaml down   # then stateful
 ```
 
@@ -587,9 +671,10 @@ containers with the new limits:
 ```bash
 docker compose -f compose.db.yaml up -d   # DB + Redis first
 docker compose up -d --remove-orphans
+docker compose -f compose.n8n.yaml up -d  # n8n (if installed)
 ```
 
-Full reinstall / fresh start uses the same two commands plus the one-time
+Full reinstall / fresh start uses the same commands plus the one-time
 `docker network create nt_n8n_network`.
 
 ## 16. First deploy on Ubuntu (quick runbook)
@@ -609,10 +694,17 @@ nano .env          # secrets + real domain (no trailing slash, no placeholder) -
 sudo ss -tlnp | grep :80        # shows the offender
 sudo systemctl stop apache2 && sudo systemctl disable apache2 && sudo pkill -f apache2
 
-# 3. Network + DB/Redis first, then the app tier
+# 3. Network + DB/Redis/nginx first, then the app tier
 docker network create nt_n8n_network
 docker compose -f compose.db.yaml up -d
 docker compose up -d --remove-orphans
+
+# 3b. (Optional) install n8n - only if you want it, see N8N.md
+#     Set N8N_INSTALL=true and COMPOSE_PROFILES=n8n in .env first.
+#     The n8n role/db are auto-created on a FRESH db-services volume; on an
+#     existing one create them manually first (N8N.md section 1/1b).
+docker compose -f compose.n8n.yaml up -d        # n8n data lives in named volume n8n_data
+docker compose -f compose.n8n.yaml logs -f n8n  # confirm no EACCES / it binds 5678
 
 # 4. Finish the web installer (creates the admin, sets installed:true)
 #    open https://<NC_DOMAIN>/ in the browser, hard refresh (Ctrl+Shift+R)
@@ -641,6 +733,7 @@ behaviour is defined.
 | `network nt_n8n_network not found` | ... step 6 creates it once | Run `docker network create nt_n8n_network` (see step 6) |
 | `failed to bind host port 0.0.0.0:80/tcp: address already in use` (or you see another web server's default page at `http://<host>:80`) | ... this stack needs `:80` free for Caddy | Another process holds port `:80` (usually system apache2/nginx). Confirm with `sudo ss -tlnp \| grep :80`, then `sudo systemctl stop apache2 && sudo systemctl disable apache2 && sudo pkill -f apache2`, recreate Caddy `docker compose up -d --remove-orphans`, re-check `ss` shows Caddy, hard refresh (`Ctrl+Shift+R`) |
 | 500 on first load / App can't reach `postgres-db` | ... step 6 starts the DB project first, so the app never races the DB | Start `compose.db.yaml` first, then the app: `docker compose -f compose.db.yaml up -d && docker compose up -d --remove-orphans` (step 6) |
+| n8n exits with `EACCES: permission denied, open '/home/node/.n8n/config'` | ... n8n uses a **named volume** (`n8n_data`) owned by the image's `node` UID, not a host bind mount | Leftover `./n8n_data` from an older bind-mount install owned by root. `docker compose -f compose.n8n.yaml down`, `rm -rf ./n8n_data`, then `docker compose -f compose.n8n.yaml up -d` (section 12.4) |
 | "Please contact your administrator ... edit the trusted_domains setting" | ... step 5 has you put the real domain last in `NEXTCLOUD_TRUSTED_DOMAINS` and drop the trailing `/` | Domain is missing/typo'd in `.env`. Put your real domain as the last entry (no placeholder, no trailing slash), recreate the app so the entrypoint regenerates `config.php` (step 5, 7) |
 | `occ status` says `installed: false` / "Nextcloud is not installed" (or `Error while trying to create admin account ... password authentication failed`) | ... step 5 sets the correct domain and a matching `POSTGRES_PASSWORD`, and step 6 boots the DB before install | First-boot install never completed. Fix `.env` (correct domain, no slash). If the DB password changed since the volume's first init, reset the DB volume - it keeps its first password even after `down -v`. Force full reset: `docker compose -f compose.db.yaml down -v`, `docker volume rm <db-volume>` if it still lists, then `compose.db.yaml up -d`, recreate the app, open `https://<NC_DOMAIN>/` (hard refresh) (step 5, 8) |
 | `Error response from daemon: No such container: nextcloud-app` | ... you should run `occ` via the service name `docker compose exec nextcloud-app …`, not `docker exec nextcloud-app …` | The real container name carries a project prefix (`nextcloud-stack-nextcloud-app-1`) that changes per folder. Use `docker compose exec nextcloud-app …`, or `docker ps --format '{{.Names}}'` to find the exact name (step 11 note) |

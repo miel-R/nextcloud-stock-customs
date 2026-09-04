@@ -318,8 +318,8 @@ restart n8n`.
 
 > **Why this is safe:** the manual `CREATE ROLE` / `CREATE DATABASE` only adds
 > objects; it never touches Nextcloud's `nextcloud` database, so Nextcloud data
-> is preserved. The n8n `./n8n_data` bind mount (workflows/config) also survives
-> re-deploys as long as you don't delete it.
+> is preserved. The n8n named volume `n8n_data` (workflows/config) also survives
+> re-deploys as long as you don't remove the volume.
 
 ---
 
@@ -350,7 +350,7 @@ services:
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:?err}
       - DB_POSTGRESDB_SCHEMA=public
     volumes:
-      - ./n8n_data:/home/node/.n8n
+      - n8n_data:/home/node/.n8n   # named volume (auto-owned by UID 1000)
     networks:
       - nt_n8n_network
 
@@ -503,11 +503,11 @@ in the same Postgres.
   tailnet hostname to it — do not rely on `/n8n/` on the shared domain.
 - **Backups.** n8n's Postgres data lives in the same `db-services` volume as
   Nextcloud's. Before/after this change, confirm your backup (BACKUP.md) covers
-  it. n8n's own config/workflows also persist in `./n8n_data` (a bind mount),
-  which is outside the container and covered by the same host backup.
+  it. n8n's own config/workflows also persist in the `n8n_data` named volume,
+  which is covered by a volume-level backup (see BACKUP.md).
 - **Do not scale** the `postgres-db` service (singleton, see DATABASE.md).
-- Removing n8n later: `docker compose -f compose.n8n.yaml down` and delete
-  `./n8n_data` if you no longer need it.
+- Removing n8n later: `docker compose -f compose.n8n.yaml down` and delete the
+  `n8n_data` volume (`docker volume rm n8n_data`) if you no longer need it.
 
 ---
 
