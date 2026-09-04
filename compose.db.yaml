@@ -115,7 +115,7 @@ services:
   #     nextcloud-app:9000. Caddy proxies to this on :80.
   #     NOTE: nginx serves Nextcloud ONLY. n8n does NOT route through it.
   # ------------------------------------------------------------
-  nextcloud-nginx:
+  proxy-nginx:
     image: nginx:1.27-alpine
     container_name: nextcloud-nginx
     restart: unless-stopped
