@@ -36,10 +36,10 @@ A stock Nextcloud Docker stack sized for ~400 users: `nextcloud:stable-fpm` (PHP
 | `turn` | `eturnal/eturnal:1.12.2` | Optional STUN/TURN relay for Talk clients behind restrictive NATs |
 | `caddy` | `caddy:alpine` | Reverse proxy on `:80` (TLS terminated upstream) |
 
-Everything connects over the external Docker network `nextcloud-network`:
+Everything connects over the external Docker network `nt_n8n_network`:
 
 ```bash
-docker network create nextcloud-network   # one time, before first up
+docker network create nt_n8n_network   # one time, before first up
 ```
 
 Named volumes: `nextcloud_db` (Postgres - owned by the database project), `nextcloud_www` (Nextcloud webroot + data), `caddy_data` / `caddy_config`. The stack is split into two Compose projects - see [Database](#database).
@@ -48,13 +48,13 @@ Named volumes: `nextcloud_db` (Postgres - owned by the database project), `nextc
 
 ```bash
 # 1. External network (one-time)
-docker network create nextcloud-network
+docker network create nt_n8n_network
 
 # 2. Environment
 cp .env.example .env
 #    edit .env: POSTGRES_PASSWORD, NEXTCLOUD_ADMIN_PASSWORD, NC_DOMAIN,
 #    OVERWRITE*, NEXTCLOUD_TRUSTED_DOMAINS, TRUSTED_PROXIES, Talk secrets
-#    (TRUSTED_PROXIES must match `docker network inspect nextcloud-network` subnet)
+#    (TRUSTED_PROXIES must match `docker network inspect nt_n8n_network` subnet)
 
 # 3. Start stateful services (PostgreSQL + Redis) - separate project
 docker compose -f compose.db.yaml up -d
@@ -82,7 +82,7 @@ Talk secrets: `openssl rand -base64 32` for `TURN_SECRET` / `SIGNALING_SECRET` /
 | `config/fpm-entrypoint.sh` | Renders the PHP-FPM pool (`zz-pool.conf`) from env at startup; auto-derives `pm.max_children` from `APP_MEM_LIMIT` at ~150 MB/child unless `APP_FPM_MAX_CHILDREN` is set |
 | `config/nginx.conf` | Nginx sidecar config: serves static files from the shared `nextcloud` webroot (incl. `.mjs` with the JS MIME type), proxies PHP to `nextcloud-app:9000`, front-controller routes clean URLs to `index.php`, handles `.well-known`/OCS discovery, sets the admin-recommended security headers, `client_max_body_size` = `UPLOAD_MAX_SIZE` |
 | `config/postgres-tuning.conf` | WAL + planner tuning + `listen_addresses='*'` (required so the app can reach Postgres and the image can create the DB); memory knobs live in `.env` (`DB_*`, passed on the DB command line) |
-| `config/pg_hba.conf` | Mounted client-auth rules allowing the `nextcloud-network` subnet (stock default only trusts localhost, which would block the app) |
+| `config/pg_hba.conf` | Mounted client-auth rules allowing the `nt_n8n_network` subnet (stock default only trusts localhost, which would block the app) |
 | `Caddyfile` | Route to app + Talk signaling (`:80`, gzip, static caching); includes an optional host-routed block for proxying n8n on its own hostname |
 | `compose.n8n.yaml` | Optional n8n automation stack (`n8n_stack`, enabled via `N8N_INSTALL` in `.env`) sharing the same Postgres |
 

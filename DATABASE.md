@@ -24,7 +24,7 @@ name `db-services`) so the web tier can scale up and down freely.
 | Database | `compose.db.yaml` | `db-services` | `postgres-db`, `nextcloud-redis` | `nextcloud_db` |
 | Web tier | `compose.yaml` | `nextcloud-stack` | `nextcloud-app`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | `nextcloud_www`, `caddy_*` |
 
-Both projects join the same external network `nextcloud-network`; the app
+Both projects join the same external network `nt_n8n_network`; the app
 reaches the database via `POSTGRES_HOST=postgres-db` and Redis via
 `REDIS_HOST=nextcloud-redis` (Docker DNS resolves the service names).
 

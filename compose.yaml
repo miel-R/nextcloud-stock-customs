@@ -92,7 +92,7 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      - nextcloud-network
+      - nt_n8n_network
     deploy:
       replicas: ${APP_REPLICAS:-1}   # honored by Swarm; for Compose use --scale
       resources:
@@ -124,7 +124,7 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - nextcloud-network
+      - nt_n8n_network
     oom_score_adj: 500
     deploy:
       resources:
@@ -146,7 +146,7 @@ services:
     volumes:
       - nextcloud:/var/www/html
     networks:
-      - nextcloud-network
+      - nt_n8n_network
     oom_score_adj: 500   # background job - never OOM-kill the app/Talk before it
     deploy:
       resources:
@@ -186,7 +186,7 @@ services:
     depends_on:
       - nextcloud-app
     networks:
-      - nextcloud-network
+      - nt_n8n_network
     oom_score_adj: 500
     deploy:
       resources:
@@ -224,7 +224,7 @@ services:
       #     docker compose -f compose.yaml -f compose.turn.yaml up -d
       # compose.turn.yaml publishes a small configurable relay range.
     networks:
-      - nextcloud-network
+      - nt_n8n_network
     oom_score_adj: 500
     deploy:
       resources:
@@ -255,7 +255,7 @@ services:
     depends_on:
       - nextcloud-app
     networks:
-      - nextcloud-network
+      - nt_n8n_network
     oom_score_adj: 500
     deploy:
       resources:
@@ -268,9 +268,9 @@ services:
 
 # ------------------------------------------------------------
 networks:
-  nextcloud-network:
+  nt_n8n_network:
     external: true
-    name: nextcloud-network
+    name: nt_n8n_network
 
 volumes:
   nextcloud:

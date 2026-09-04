@@ -235,10 +235,10 @@ default Nextcloud block, `n8n.example.com` goes to n8n.
 ### 2. `compose.n8n.yaml` - proxied mode
 
 - **Comment out** the `ports: "127.0.0.1:5678:5678"` line so n8n is reachable
-  only on `nextcloud-network` (by nginx), not published on the host.
+  only on `nt_n8n_network` (by nginx), not published on the host.
 - Set the public-URL vars from `.env` so n8n emits correct links:
   `N8N_HOST=n8n.example.com`, `N8N_PROTOCOL=https`, `N8N_PORT=5678`.
-- n8n already joins `nextcloud-network`, so `nginx` reaches it as
+- n8n already joins `nt_n8n_network`, so `nginx` reaches it as
   `n8n_email_summarizer:5678`. No additional nginx container is added to the
   n8n stack.
 

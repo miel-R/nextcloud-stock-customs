@@ -8,7 +8,7 @@ name: n8n_stack
 #   - n8n workflows/editor are independent of the Nextcloud app tier; it can be
 #     started/stopped/upgraded on its own.
 #   - it still reaches the single shared Postgres (`postgres-db`) over the
-#     external `nextcloud-network` - the n8n database lives in the same
+#     external `nt_n8n_network` - the n8n database lives in the same
 #     `nextcloud_db` volume (separate database + role, owned independently).
 #   - `docker compose -f compose.db.yaml down` never touches n8n, and vice versa
 #     `docker compose -f compose.n8n.yaml down` never stops the database.
@@ -18,7 +18,7 @@ name: n8n_stack
 #   2) the n8n database + role exist in the shared Postgres
 #      - automatic on a fresh volume (config/init-n8n.sh), OR
 #      - manual on an existing volume (see N8N.md).
-#   3) the external network exists once:  docker network create nextcloud-network
+#   3) the external network exists once:  docker network create nt_n8n_network
 #
 # Start:
 #     docker compose -f compose.n8n.yaml up -d
@@ -27,7 +27,7 @@ name: n8n_stack
 #     http://localhost:5678
 #
 # Public exposure (optional): rroute n8n through Caddy on the shared
-# nextcloud-network at its OWN hostname (n8n subpath hosting is broken). Set
+# nt_n8n_network at its OWN hostname (n8n subpath hosting is broken). Set
 # N8N_HOST/N8N_PROTOCOL in .env and proxied N8N_DOMAIN in the Caddyfile; Caddy
 # reaches this container as n8n-n8n-1:5678. See N8N.md ("Self-hosting both on
 # one Funnel domain").
@@ -45,7 +45,7 @@ services:
     # Loopback only by default - NOT exposed to the internet / Funnel. Reach it on
     # this host at http://localhost:5678, or over the tailnet via this host's
     # tailnet IP.
-    # The shared nginx also reaches this container over nextcloud-network as
+    # The shared nginx also reaches this container over nt_n8n_network as
     # n8n_email_summarizer:5678 (that is how the nginx n8n server_name block
     # proxies to it for n8n.example.com). The loopback port is for local testing
     # only; it is not reachable by the Funnel/browser.
@@ -72,9 +72,9 @@ services:
     volumes:
       - ./n8n_data:/home/node/.n8n
     networks:
-      - nextcloud-network
+      - nt_n8n_network
 
 networks:
-  nextcloud-network:
+  nt_n8n_network:
     external: true
-    name: nextcloud-network
+    name: nt_n8n_network

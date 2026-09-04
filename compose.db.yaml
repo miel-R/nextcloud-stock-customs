@@ -15,7 +15,7 @@ name: db-services
 #     docker compose -f compose.db.yaml up -d
 #     docker compose up -d
 #
-# The app connects over the shared external network `nextcloud-network`.
+# The app connects over the shared external network `nt_n8n_network`.
 # Data volume `nextcloud_db` persists across both projects.
 # Start/stop and the managed-cloud migration path: see DATABASE.md
 # ============================================================================
@@ -69,7 +69,7 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - nextcloud-network
+      - nt_n8n_network
     deploy:
       resources:
         limits:
@@ -95,7 +95,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - nextcloud-network
+      - nt_n8n_network
     deploy:
       resources:
         limits:
@@ -106,9 +106,9 @@ services:
           cpus: "${REDIS_CPUS_RES:-0.5}"
 
 networks:
-  nextcloud-network:
+  nt_n8n_network:
     external: true
-    name: nextcloud-network
+    name: nt_n8n_network
 
 volumes:
   db:

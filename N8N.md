@@ -12,7 +12,7 @@ in its **own Compose project (`n8n_stack`, `compose.n8n.yaml`)** but uses the
 ## The model
 
 ```
-┌──────────────────────────── nextcloud-network ─────────────────────────────┐
+┌──────────────────────────── nt_n8n_network ─────────────────────────────┐
 │                                                                             │
 │   ┌─────────────── postgres-db (postgres:16-alpine) ───────────────┐      │
 │   │   database  nextcloud    (owned by nextcloud user)              │      │
@@ -36,7 +36,7 @@ in its **own Compose project (`n8n_stack`, `compose.n8n.yaml`)** but uses the
   `n8n` databases. n8n gets its **own database and user** — it never touches
   Nextcloud's tables.
 - **n8n is its own Compose project** (`n8n_stack`). It joins the shared external
-  `nextcloud-network` to reach `postgres-db`. Start/stop/upgrade it
+  `nt_n8n_network` to reach `postgres-db`. Start/stop/upgrade it
   independently; `compose.db.yaml down` never stops n8n and vice versa.
 - By default n8n binds **`127.0.0.1:5678`** (loopback only) — internal / tailnet
   only, NOT the public Funnel hostname. (Options to share the Funnel domain are
@@ -84,7 +84,7 @@ one Caddy/funnel entry point on :443.
 The plumbing is already in the repo; enable it like this:
 
 1. **`compose.n8n.yaml`** — comment out the `ports:` (loopback) line so n8n is
-   reachable only on `nextcloud-network` (Caddy, also on that network, reaches
+   reachable only on `nt_n8n_network` (Caddy, also on that network, reaches
    it internally; it stays unreachable from the internet directly). Set the
    public URL vars (`.env`):
 
@@ -107,7 +107,7 @@ services:
    ```
 
 2. **`Caddyfile`** — uncomment the n8n routing block, which matches the n8n host
-   and proxies to the n8n container (already joins `nextcloud-network`). Provide
+   and proxies to the n8n container (already joins `nt_n8n_network`). Provide
    the hostname via the `N8N_DOMAIN` variable passed to Caddy:
 
 ```caddyfile
@@ -351,12 +351,12 @@ services:
     volumes:
       - ./n8n_data:/home/node/.n8n
     networks:
-      - nextcloud-network
+      - nt_n8n_network
 
 networks:
-  nextcloud-network:
+  nt_n8n_network:
     external: true
-    name: nextcloud-network
+    name: nt_n8n_network
 ```
 
 Key points baked in:
@@ -365,7 +365,7 @@ Key points baked in:
   public exposure, remove this and use the Caddy→ `n8n-n8n-1:5678` approach in
   "Self-hosting both on one Funnel domain".)
 - **`DB_POSTGRESDB_HOST=postgres-db`** — the same container Nextcloud uses, on
-  the same external `nextcloud-network`.
+  the same external `nt_n8n_network`.
 - **`DB_POSTGRESDB_DATABASE/USER/PASSWORD`** come from the `.env` vars in step 1.
 - `DB_TYPE=postgresdb` is the modern n8n database driver variable.
 
@@ -424,7 +424,7 @@ nano .env        # set POSTGRES_PASSWORD, NEXTCLOUD_ADMIN_*, NC_DOMAIN, OVERWRIT
 ```bash
 sudo ss -tlnp | grep :80          # is a system web server (apache2/nginx) holding :80?
 sudo systemctl stop apache2 && sudo systemctl disable apache2 && sudo pkill -f apache2
-docker network create nextcloud-network    # once
+docker network create nt_n8n_network    # once
 ```
 
 ### 4.3 Validate config before starting
@@ -489,7 +489,7 @@ in the same Postgres.
 
 - Nextcloud on the **Funnel domain** (`https://<NC_DOMAIN>/`).
 - n8n on **loopback / tailnet only** (`http://<host>:5678`), sharing Postgres.
-- Optional Ami bot on the same `nextcloud-network` (see `ami-nextcloud-talk`
+- Optional Ami bot on the same `nt_n8n_network` (see `ami-nextcloud-talk`
   `INSTALL.md`).
 
 ---
@@ -515,7 +515,7 @@ in the same Postgres.
 | Symptom | Cause / fix |
 | --- | --- |
 | n8n fails to start: `role "n8n" does not exist` | The DB volume already existed so the init script never ran. Provision manually (section 1 → Path B, or the "1b. Redeploy" procedure) and restart n8n (`docker compose -f compose.n8n.yaml restart`) |
-| n8n starts but can't connect to Postgres (`connection refused`, host `postgres-db`) | The `postgres-db` container is not on `nextcloud-network`, or you started n8n before the DB project. Ensure `docker compose -f compose.db.yaml up -d` ran for the DB first |
+| n8n starts but can't connect to Postgres (`connection refused`, host `postgres-db`) | The `postgres-db` container is not on `nt_n8n_network`, or you started n8n before the DB project. Ensure `docker compose -f compose.db.yaml up -d` ran for the DB first |
 | `password authentication failed for user "n8n"` | The n8n role's password does not match `POSTGRES_PASSWORD` (or the `DB_POSTGRESDB_PASSWORD` env). Re-provision the role to match |
 | `no such service: n8n` when using `compose.db.yaml` | n8n no longer lives in `compose.db.yaml` — it is its own file. Use `docker compose -f compose.n8n.yaml up -d` |
 | Editor loads but "Connection lost / Invalid origin" | Only relevant if you reverse-proxied n8n. Forward `Origin` / `X-Forwarded-*` headers (see "Self-hosting both on one Funnel domain", option C) |

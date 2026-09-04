@@ -7,7 +7,7 @@ side by side so you can follow one to the end.
 **Start order is the one thing to get right.** The stack splits into two Compose
 projects, and they must come up in this order:
 
-1. the **shared network** (one-time) - `nextcloud-network`
+1. the **shared network** (one-time) - `nt_n8n_network`
 2. the **stateful project** - `compose.db.yaml` (PostgreSQL + Redis) - ALWAYS FIRST
 3. the **app project** - `compose.yaml` (Nextcloud, cron, Talk signaling/TURN, Caddy)
 
@@ -23,7 +23,7 @@ starts, so finish the **DNS / TLS choice (step 6) before first start**.
 | `db-services` | `compose.db.yaml` | `postgres-db`, `nextcloud-redis` | **1st (always)** |
 | `nextcloud-stack` | `compose.yaml` | `nextcloud-app`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | 2nd |
 
-Both connect over the single external network `nextcloud-network`.
+Both connect over the single external network `nt_n8n_network`.
 
 ## 1. Sizing the host
 
@@ -102,14 +102,14 @@ Set-Location nextcloud-stock-customs
 
 ## 4. One-time network
 
-Both projects expect an **external** network named `nextcloud-network`. Create it
+Both projects expect an **external** network named `nt_n8n_network`. Create it
 once (any OS):
 
 ```bash
-docker network create nextcloud-network
+docker network create nt_n8n_network
 ```
 
-If you ever see `network nextcloud-network not found`, re-run this exact command.
+If you ever see `network nt_n8n_network not found`, re-run this exact command.
 
 ## 5. Environment file
 
@@ -145,7 +145,7 @@ and **(2) a trailing `/` on `NC_DOMAIN`**.
 | `OVERWRITECLIURL=` | `https://` + your domain | used so CLI/`occ` builds https links |
 | `OVERWRITEPROTOCOL=` | `http` or `https` | `https` when TLS is terminated in front (Funnel/Direct LE) |
 | `NEXTCLOUD_TRUSTED_DOMAINS=` | `localhost 127.0.0.1 nextcloud <your-domain>` | **must end with your real domain, not the placeholder** |
-| `TRUSTED_PROXIES=` | the docker subnet | `docker network inspect nextcloud-network` (default `172.16.0.0/12`) |
+| `TRUSTED_PROXIES=` | the docker subnet | `docker network inspect nt_n8n_network` (default `172.16.0.0/12`) |
 | `TURN_SECRET/SIGNALING_SECRET/INTERNAL_SECRET=` | 3 random base64 | must match what the signaling/TURN containers get |
 | `BLOCK_KEY=` / `HASH_KEY=` | random hex | sizes shown in the secrets section below |
 
@@ -500,7 +500,7 @@ touching the database, and Talk TURN relay can be turned on with an overlay.
 
 ### 12.1 Two projects, one shared network
 
-Both projects connect over the single external network `nextcloud-network`
+Both projects connect over the single external network `nt_n8n_network`
 (created once, step 4). Containers in either project resolve each other by
 service name across the projects to that one network.
 
@@ -588,7 +588,7 @@ docker compose up -d --remove-orphans
 ```
 
 Full reinstall / fresh start uses the same two commands plus the one-time
-`docker network create nextcloud-network`.
+`docker network create nt_n8n_network`.
 
 ## 16. First deploy on Ubuntu (quick runbook)
 
@@ -608,7 +608,7 @@ sudo ss -tlnp | grep :80        # shows the offender
 sudo systemctl stop apache2 && sudo systemctl disable apache2 && sudo pkill -f apache2
 
 # 3. Network + DB/Redis first, then the app tier
-docker network create nextcloud-network
+docker network create nt_n8n_network
 docker compose -f compose.db.yaml up -d
 docker compose up -d --remove-orphans
 
@@ -636,7 +636,7 @@ behaviour is defined.
 
 | Symptom | Should not happen because ... | Likely cause / fix |
 | --- | --- | --- |
-| `network nextcloud-network not found` | ... step 6 creates it once | Run `docker network create nextcloud-network` (see step 6) |
+| `network nt_n8n_network not found` | ... step 6 creates it once | Run `docker network create nt_n8n_network` (see step 6) |
 | `failed to bind host port 0.0.0.0:80/tcp: address already in use` (or you see another web server's default page at `http://<host>:80`) | ... this stack needs `:80` free for Caddy | Another process holds port `:80` (usually system apache2/nginx). Confirm with `sudo ss -tlnp \| grep :80`, then `sudo systemctl stop apache2 && sudo systemctl disable apache2 && sudo pkill -f apache2`, recreate Caddy `docker compose up -d --remove-orphans`, re-check `ss` shows Caddy, hard refresh (`Ctrl+Shift+R`) |
 | 500 on first load / App can't reach `postgres-db` | ... step 6 starts the DB project first, so the app never races the DB | Start `compose.db.yaml` first, then the app: `docker compose -f compose.db.yaml up -d && docker compose up -d --remove-orphans` (step 6) |
 | "Please contact your administrator ... edit the trusted_domains setting" | ... step 5 has you put the real domain last in `NEXTCLOUD_TRUSTED_DOMAINS` and drop the trailing `/` | Domain is missing/typo'd in `.env`. Put your real domain as the last entry (no placeholder, no trailing slash), recreate the app so the entrypoint regenerates `config.php` (step 5, 7) |
