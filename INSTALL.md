@@ -20,7 +20,7 @@ starts, so finish the **DNS / TLS choice (step 6) before first start**.
 
 | Project | File | Services | Starts |
 | --- | --- | --- | --- |
-| `db-services` | `compose.db.yaml` | `nextcloud-db`, `nextcloud-redis` | **1st (always)** |
+| `db-services` | `compose.db.yaml` | `postgres-db`, `nextcloud-redis` | **1st (always)** |
 | `nextcloud-stack` | `compose.yaml` | `nextcloud-app`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | 2nd |
 
 Both connect over the single external network `nextcloud-network`.
@@ -494,8 +494,8 @@ touching the database, and Talk TURN relay can be turned on with an overlay.
 
 | File | Project | What it runs | When to `up` it |
 | --- | --- | --- | --- |
-| `compose.db.yaml` | `db-services` | PostgreSQL (`nextcloud-db`) + Redis (`nextcloud-redis`) — **singletons** | Always first |
-| `compose.yaml` | `nextcloud-stack` | `nextcloud-app` (PHP-FPM), `nextcloud-nginx`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | Always second |
+| `compose.db.yaml` | `db-services` | PostgreSQL (`postgres-db`) + Redis (`nextcloud-redis`) — **singletons** | Always first |
+| `compose.yaml` | `nextcloud-stack` | `nextcloud-app` (PHP-FPM), `proxy-nginx`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | Always second |
 | `compose.turn.yaml` (override) | `nextcloud-stack` (merged into `compose.yaml`) | TURN **relay** UDP port range for media | Only on native Linux, only if clients need a real relay |
 
 ### 12.1 Two projects, one shared network
@@ -515,12 +515,12 @@ Volumes:
 `compose.yaml` is itself a 3-layer reverse-proxy/micro-tracing chain per request:
 
 ```
-client -> caddy (:80) -> nextcloud-nginx (:80) -> nextcloud-app PHP-FPM (:9000)
+client -> caddy (:80) -> proxy-nginx (:80) -> nextcloud-app PHP-FPM (:9000)
 ```
 
 - `caddy` — public edge (TLS upstream: Tailscale Funnel / external proxy), does
   gzip + static caching, routes `/standalone-signaling` to the HPB.
-- `nextcloud-nginx` — stock nginx; serves static files from the webroot, does
+- `proxy-nginx` — stock nginx; serves static files from the webroot, does
   the Nextcloud rewrite rules/`.well-known`/OCS routing, security headers, and
   proxies PHP to the FPM pool. Its config is `config/nginx.conf`.
 - `nextcloud-app` — `nextcloud:stable-fpm`; renders PHP, auto-scales its FPM
@@ -553,7 +553,7 @@ docker compose -f compose.db.yaml down
 docker compose up -d --scale nextcloud-app=2
 ```
 
-> **Never `--scale` `nextcloud-db` or `nextcloud-redis`** — those are singletons
+> **Never `--scale` `postgres-db` or `nextcloud-redis`** — those are singletons
 > in `compose.db.yaml`; scaling the web tier is what the split is for.
 
 ## 13. Optional: extra app replica
@@ -638,7 +638,7 @@ behaviour is defined.
 | --- | --- | --- |
 | `network nextcloud-network not found` | ... step 6 creates it once | Run `docker network create nextcloud-network` (see step 6) |
 | `failed to bind host port 0.0.0.0:80/tcp: address already in use` (or you see another web server's default page at `http://<host>:80`) | ... this stack needs `:80` free for Caddy | Another process holds port `:80` (usually system apache2/nginx). Confirm with `sudo ss -tlnp \| grep :80`, then `sudo systemctl stop apache2 && sudo systemctl disable apache2 && sudo pkill -f apache2`, recreate Caddy `docker compose up -d --remove-orphans`, re-check `ss` shows Caddy, hard refresh (`Ctrl+Shift+R`) |
-| 500 on first load / App can't reach `nextcloud-db` | ... step 6 starts the DB project first, so the app never races the DB | Start `compose.db.yaml` first, then the app: `docker compose -f compose.db.yaml up -d && docker compose up -d --remove-orphans` (step 6) |
+| 500 on first load / App can't reach `postgres-db` | ... step 6 starts the DB project first, so the app never races the DB | Start `compose.db.yaml` first, then the app: `docker compose -f compose.db.yaml up -d && docker compose up -d --remove-orphans` (step 6) |
 | "Please contact your administrator ... edit the trusted_domains setting" | ... step 5 has you put the real domain last in `NEXTCLOUD_TRUSTED_DOMAINS` and drop the trailing `/` | Domain is missing/typo'd in `.env`. Put your real domain as the last entry (no placeholder, no trailing slash), recreate the app so the entrypoint regenerates `config.php` (step 5, 7) |
 | `occ status` says `installed: false` / "Nextcloud is not installed" (or `Error while trying to create admin account ... password authentication failed`) | ... step 5 sets the correct domain and a matching `POSTGRES_PASSWORD`, and step 6 boots the DB before install | First-boot install never completed. Fix `.env` (correct domain, no slash). If the DB password changed since the volume's first init, reset the DB volume - it keeps its first password even after `down -v`. Force full reset: `docker compose -f compose.db.yaml down -v`, `docker volume rm <db-volume>` if it still lists, then `compose.db.yaml up -d`, recreate the app, open `https://<NC_DOMAIN>/` (hard refresh) (step 5, 8) |
 | `Error response from daemon: No such container: nextcloud-app` | ... you should run `occ` via the service name `docker compose exec nextcloud-app …`, not `docker exec nextcloud-app …` | The real container name carries a project prefix (`nextcloud-stack-nextcloud-app-1`) that changes per folder. Use `docker compose exec nextcloud-app …`, or `docker ps --format '{{.Names}}'` to find the exact name (step 11 note) |

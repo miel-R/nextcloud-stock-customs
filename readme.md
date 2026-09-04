@@ -27,10 +27,10 @@ A stock Nextcloud Docker stack sized for ~400 users: `nextcloud:stable-fpm` (PHP
 
 | Service | Image | Role |
 | --- | --- | --- |
-| `nextcloud-db` | `postgres:16-alpine` | Database - standalone project (`compose.db.yaml`) |
+| `postgres-db` | `postgres:16-alpine` | Database - standalone project (`compose.db.yaml`) |
 | `nextcloud-redis` | `redis:alpine` | PHP sessions, distributed cache, file locking - standalone project |
 | `nextcloud-app` | `nextcloud:stable-fpm` | Nextcloud PHP-FPM (scalable, no host ports; pool auto-scales with `APP_MEM_LIMIT`) |
-| `nextcloud-nginx` | `nginx:1.27-alpine` | Serves static files + proxies PHP to `nextcloud-app:9000` (AIO-style runtime model) |
+| `proxy-nginx` | `nginx:1.27-alpine` | Serves static files + proxies PHP to `nextcloud-app:9000` (AIO-style runtime model) |
 | `nextcloud-cron` | `nextcloud:stable` | Background jobs via the official `/cron.sh` |
 | `signaling` | `strukturag/nextcloud-spreed-signaling:2.1.1` | Optional Talk standalone signaling server (backend-authorised, no webroot mount) |
 | `turn` | `eturnal/eturnal:1.12.2` | Optional STUN/TURN relay for Talk clients behind restrictive NATs |

@@ -21,11 +21,11 @@ name `db-services`) so the web tier can scale up and down freely.
 
 | Project | File | Project name | Services | Owns volume |
 | --- | --- | --- | --- | --- |
-| Database | `compose.db.yaml` | `db-services` | `nextcloud-db`, `nextcloud-redis` | `nextcloud_db` |
+| Database | `compose.db.yaml` | `db-services` | `postgres-db`, `nextcloud-redis` | `nextcloud_db` |
 | Web tier | `compose.yaml` | `nextcloud-stack` | `nextcloud-app`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | `nextcloud_www`, `caddy_*` |
 
 Both projects join the same external network `nextcloud-network`; the app
-reaches the database via `POSTGRES_HOST=nextcloud-db` and Redis via
+reaches the database via `POSTGRES_HOST=postgres-db` and Redis via
 `REDIS_HOST=nextcloud-redis` (Docker DNS resolves the service names).
 
 ## Start / stop / order
@@ -48,7 +48,7 @@ both at once usually works - but the documented order is safer.
 
 ## Migrating from the old single-file layout
 
-If you previously ran a single `compose.yaml` that contained `nextcloud-db` in
+If you previously ran a single `compose.yaml` that contained `postgres-db` in
 the same project:
 
 ```bash
@@ -66,7 +66,7 @@ The named volume `nextcloud_db` is reused as-is, so existing data stays intact.
 
 ## Rules
 
-- Never run `--scale nextcloud-db` or `--scale nextcloud-redis`. They are
+- Never run `--scale postgres-db` or `--scale nextcloud-redis`. They are
   stateful singletons: two PostgreSQL instances on one volume corrupt data, two
   Redis instances fight over sessions, and scaling cannot "merge" them back.
 - Postgres sizing is env-driven (`DB_MEM_LIMIT`, `DB_SHARED_BUFFERS`,
@@ -77,8 +77,8 @@ The named volume `nextcloud_db` is reused as-is, so existing data stays intact.
 
 ## Backups
 
-- Database: `docker exec nextcloud-db pg_dump -U nextcloud -d nextcloud -Fc`
-  (or `docker compose -f compose.db.yaml exec nextcloud-db pg_dump ...`).
+- Database: `docker exec postgres-db pg_dump -U nextcloud -d nextcloud -Fc`
+  (or `docker compose -f compose.db.yaml exec postgres-db pg_dump ...`).
   Full procedure in [BACKUP.md](BACKUP.md).
 - Files: unchanged, wherever the web tier runs (volume `nextcloud_www`).
 
@@ -92,7 +92,7 @@ When you outgrow the single host or want HA + zero-maintenance patching:
 2. Allow the app host IP (or private network) in the provider firewall.
 3. Export the local data:
    ```bash
-   docker exec nextcloud-db pg_dump -U nextcloud -d nextcloud -Fc > pre-migration.dump
+   docker exec postgres-db pg_dump -U nextcloud -d nextcloud -Fc > pre-migration.dump
    ```
 4. Restore into the managed instance (dump is piped via stdin):
    ```bash
@@ -120,10 +120,10 @@ When you outgrow the single host or want HA + zero-maintenance patching:
 9. If everything looks good, stop the local database (keep the volume around as
    a fallback):
    ```bash
-   docker compose -f compose.db.yaml stop nextcloud-db
+   docker compose -f compose.db.yaml stop postgres-db
    ```
 
-Rollback: point `.env` back at `POSTGRES_HOST=nextcloud-db`, recreate the app
+Rollback: point `.env` back at `POSTGRES_HOST=postgres-db`, recreate the app
 containers, and the local volume is used again.
 
 ## Notes

@@ -62,7 +62,7 @@ services:
       - ./config/fpm-entrypoint.sh:/fpm-entrypoint.sh:ro
       - ./config/php-custom.ini:/usr/local/etc/php/conf.d/zz-custom.ini:ro
     environment:
-      POSTGRES_HOST: nextcloud-db
+      POSTGRES_HOST: postgres-db
       REDIS_HOST: nextcloud-redis
       POSTGRES_DB: ${POSTGRES_DB:-nextcloud}
       POSTGRES_USER: ${POSTGRES_USER:-nextcloud}
@@ -106,11 +106,11 @@ services:
   # ------------------------------------------------------------
   # 1b. NGINX fronting the PHP-FPM app (stock, AIO-style runtime model).
   #     Serves static files and proxies PHP to nextcloud-app:9000. Caddy's
-  #     nextcloud-app:80 target changes to nextcloud-nginx:80.
+  #     nextcloud-app:80 target changes to proxy-nginx:80.
   # ------------------------------------------------------------
-  nextcloud-nginx:
+  proxy-nginx:
     image: nginx:1.27-alpine
-    container_name: nextcloud-nginx
+    container_name: proxy-nginx
     restart: unless-stopped
     depends_on:
       - nextcloud-app

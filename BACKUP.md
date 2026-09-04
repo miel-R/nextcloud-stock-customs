@@ -12,11 +12,11 @@ Redis and Caddy state are disposable (sessions/cache/config can be rebuilt).
 ### 1. Database (daily, logical dump)
 
 ```bash
-docker exec nextcloud-db pg_dump -U nextcloud -d nextcloud -Fc \
-  > /backup/nextcloud-db-$(date +%F).dump
+docker exec postgres-db pg_dump -U nextcloud -d nextcloud -Fc \
+  > /backup/postgres-db-$(date +%F).dump
 ```
 
-Goes through the same container as the app, so no extra client needed (`docker exec nextcloud-db` works from anywhere because the container name is fixed). The database runs in the standalone project - the compose equivalent is `docker compose -f compose.db.yaml exec nextcloud-db pg_dump ...`. `-Fc` (custom format) is compressed and restore-friendly. Keep a few days on disk plus an off-site copy (rclone/borg).
+Goes through the same container as the app, so no extra client needed (`docker exec postgres-db` works from anywhere because the container name is fixed). The database runs in the standalone project - the compose equivalent is `docker compose -f compose.db.yaml exec postgres-db pg_dump ...`. `-Fc` (custom format) is compressed and restore-friendly. Keep a few days on disk plus an off-site copy (rclone/borg).
 
 ### 2. Files (daily, consistent)
 
@@ -51,8 +51,8 @@ BACKUP_DIR=/backup/nextcloud
 STAMP=$(date +%F)
 mkdir -p "$BACKUP_DIR"
 
-docker exec nextcloud-db pg_dump -U nextcloud -d nextcloud -Fc \
-  > "$BACKUP_DIR/nextcloud-db-$STAMP.dump"
+docker exec postgres-db pg_dump -U nextcloud -d nextcloud -Fc \
+  > "$BACKUP_DIR/postgres-db-$STAMP.dump"
 
 docker exec -u www-data nextcloud-app php occ maintenance:mode --on
 docker run --rm -v nextcloud_www:/data:ro -v "$BACKUP_DIR":/backup alpine \
@@ -60,7 +60,7 @@ docker run --rm -v nextcloud_www:/data:ro -v "$BACKUP_DIR":/backup alpine \
 docker exec -u www-data nextcloud-app php occ maintenance:mode --off
 
 # retention: keep 7 daily dumps
-find "$BACKUP_DIR" -name 'nextcloud-db-*.dump' -mtime +7 -delete
+find "$BACKUP_DIR" -name 'postgres-db-*.dump' -mtime +7 -delete
 find "$BACKUP_DIR" -name 'nextcloud-www-*.tar.gz' -mtime +7 -delete
 ```
 
@@ -74,10 +74,10 @@ docker compose up -d --scale nextcloud-app=0
 docker exec -u www-data nextcloud-app php occ maintenance:mode --on   # if still running
 
 # 2. database
-docker exec -u www-data nextcloud-db \
+docker exec -u www-data postgres-db \
   psql -U nextcloud -d nextcloud -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
-cat nextcloud-db-YYYY-MM-DD.dump | \
-  docker exec -i nextcloud-db pg_restore -U nextcloud -d nextcloud --clean --if-exists
+cat postgres-db-YYYY-MM-DD.dump | \
+  docker exec -i postgres-db pg_restore -U nextcloud -d nextcloud --clean --if-exists
 
 # 3. files
 docker run --rm -v nextcloud_www:/data -v "$(pwd)":/backup alpine \

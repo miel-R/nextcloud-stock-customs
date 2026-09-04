@@ -33,11 +33,11 @@ open ports straight to Caddy (no Funnel) - see
 │    terminates TLS itself for the open-ports case)           │
 │  • routes by URL *path*:                                    │
 │       /standalone-signaling/*  → nextcloud-signaling:8081   │
-│       everything else         → nextcloud-nginx:80          │
+│       everything else         → proxy-nginx:80          │
 │  • gzip compression + static-asset caching headers          │
 └──────────────────────────┬──────────────────────────────────┘
                            ▼
-┌──────────────────── NGINX (nextcloud-nginx) ───────────────┐
+┌──────────────────── NGINX (proxy-nginx) ───────────────┐
 │  • serves Nextcloud static files from the shared webroot   │
 │  • routes PHP → nextcloud-app:9000 (PHP-FPM)               │
 │  • load-balances across many nextcloud-app replicas        │
@@ -71,12 +71,12 @@ The request keeps its **`Host` header** the whole way; the layer that decides
 
 - The **single reverse-proxy entry** into the stack, listening on **:80**.
 - Routes by **URL path**: `/standalone-signaling/*` → the Talk signaling server;
-  everything else → `nextcloud-nginx`.
+  everything else → `proxy-nginx`.
 - Adds **gzip** and **static caching**.
 - Currently a flat `:80` site (does not split by hostname). The hostname split
   lives in nginx (below).
 
-### nginx (`nextcloud-nginx`)
+### nginx (`proxy-nginx`)
 
 - The **workhorse for the web tier**.
 - Serves **static files** directly from the shared Nextcloud webroot (fast, no
@@ -171,7 +171,7 @@ nextcloud.example.com {
         reverse_proxy nextcloud-signaling:8081
     }
     handle {
-        reverse_proxy nextcloud-nginx:80 { ... }
+        reverse_proxy proxy-nginx:80 { ... }
     }
 }
 
@@ -244,7 +244,7 @@ default Nextcloud block, `n8n.example.com` goes to n8n.
 
 ### 3. `Caddyfile` / `compose.yaml` - no change
 
-Caddy already forwards **every** hostname on `:80` to `nextcloud-nginx:80`
+Caddy already forwards **every** hostname on `:80` to `proxy-nginx:80`
 (and the Talk signaling path separately). nginx then performs the hostname
 split. Single edge: `Funnel → Caddy → nginx → {Nextcloud | n8n}`.
 

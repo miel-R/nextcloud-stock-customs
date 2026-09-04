@@ -10,7 +10,7 @@
 # distinct credential.
 #
 # n8n then connects with (see the n8n service in compose.n8n.yaml):
-#   DB_POSTGRESDB_HOST=nextcloud-db
+#   DB_POSTGRESDB_HOST=postgres-db
 #   DB_POSTGRESDB_DATABASE=$N8N_DB_NAME      (default n8n)
 #   DB_POSTGRESDB_USER=$N8N_DB_USER          (default n8n)
 #   DB_POSTGRESDB_PASSWORD=$N8N_DB_PASSWORD  (default = POSTGRES_PASSWORD)
