@@ -106,11 +106,11 @@ services:
   # ------------------------------------------------------------
   # 1b. NGINX fronting the PHP-FPM app (stock, AIO-style runtime model).
   #     Serves static files and proxies PHP to nextcloud-app:9000. Caddy's
-  #     nextcloud-app:80 target changes to proxy-nginx:80.
+  #     nextcloud-app:80 target changes to nextcloud-nginx:80.
   # ------------------------------------------------------------
-  proxy-nginx:
+  nextcloud-nginx:
     image: nginx:1.27-alpine
-    container_name: proxy-nginx
+    container_name: nextcloud-nginx
     restart: unless-stopped
     depends_on:
       - nextcloud-app

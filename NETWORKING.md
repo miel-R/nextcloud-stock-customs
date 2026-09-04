@@ -74,7 +74,7 @@ What to change:
       encode gzip zstd
       @static path *.css *.js *.svg *.gif *.png *.jpg *.jpeg *.ico *.woff2 *.ttf
       header @static Cache-Control "public, max-age=2592000, immutable"
-      reverse_proxy proxy-nginx:80 {
+      reverse_proxy nextcloud-nginx:80 {
           transport http { response_header_timeout 1h }
       }
       handle_path /standalone-signaling/* { reverse_proxy nextcloud-signaling:8081 }
@@ -107,7 +107,7 @@ What to change:
 - Keep `caddy` and the **current** `:80` Caddyfile (Cloudflare forwards HTTP).
 - Host the `cloudflared` tunnel on the same host:
   `cloudflared tunnel run --url http://127.0.0.1:80`
-  (or a config ingress -> `http://proxy-nginx:80`).
+  (or a config ingress -> `http://nextcloud-nginx:80`).
 - Use your own domain on Cloudflare (see Domain provider below).
 - `.env`:
   ```bash

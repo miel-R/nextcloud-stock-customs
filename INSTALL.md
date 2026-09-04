@@ -495,7 +495,7 @@ touching the database, and Talk TURN relay can be turned on with an overlay.
 | File | Project | What it runs | When to `up` it |
 | --- | --- | --- | --- |
 | `compose.db.yaml` | `db-services` | PostgreSQL (`postgres-db`) + Redis (`nextcloud-redis`) — **singletons** | Always first |
-| `compose.yaml` | `nextcloud-stack` | `nextcloud-app` (PHP-FPM), `proxy-nginx`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | Always second |
+| `compose.yaml` | `nextcloud-stack` | `nextcloud-app` (PHP-FPM), `nextcloud-nginx`, `nextcloud-cron`, `signaling`, `turn`, `caddy` | Always second |
 | `compose.turn.yaml` (override) | `nextcloud-stack` (merged into `compose.yaml`) | TURN **relay** UDP port range for media | Only on native Linux, only if clients need a real relay |
 
 ### 12.1 Two projects, one shared network
@@ -515,12 +515,12 @@ Volumes:
 `compose.yaml` is itself a 3-layer reverse-proxy/micro-tracing chain per request:
 
 ```
-client -> caddy (:80) -> proxy-nginx (:80) -> nextcloud-app PHP-FPM (:9000)
+client -> caddy (:80) -> nextcloud-nginx (:80) -> nextcloud-app PHP-FPM (:9000)
 ```
 
 - `caddy` — public edge (TLS upstream: Tailscale Funnel / external proxy), does
   gzip + static caching, routes `/standalone-signaling` to the HPB.
-- `proxy-nginx` — stock nginx; serves static files from the webroot, does
+- `nextcloud-nginx` — stock nginx; serves static files from the webroot, does
   the Nextcloud rewrite rules/`.well-known`/OCS routing, security headers, and
   proxies PHP to the FPM pool. Its config is `config/nginx.conf`.
 - `nextcloud-app` — `nextcloud:stable-fpm`; renders PHP, auto-scales its FPM

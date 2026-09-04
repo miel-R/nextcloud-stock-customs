@@ -3,7 +3,7 @@
 # - HTTP only (:80). TLS is terminated upstream (Tailscale Funnel / external
 #   reverse proxy), so Nextcloud is told the public scheme via the
 #   OVERWRITEPROTOCOL / OVERWRITECLIURL env vars in .env.
-# - reverse_proxy targets the `proxy-nginx` sidecar (stock nginx in front of
+# - reverse_proxy targets the `nextcloud-nginx` sidecar (stock nginx in front of
 #   the PHP-FPM `nextcloud-app` service). When the app is scaled with
 #   `docker compose up -d --scale nextcloud-app=N`, nginx resolves PHP to the
 #   FPM pool on :9000 automatically.
@@ -57,7 +57,7 @@
 
     # Everything else -> Nginx (serves static, proxies PHP to FPM)
     handle {
-        reverse_proxy proxy-nginx:80 {
+        reverse_proxy nextcloud-nginx:80 {
             # Forward timeouts for long-running Nextcloud operations
             transport http {
                 read_buffer 0

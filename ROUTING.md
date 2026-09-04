@@ -31,23 +31,18 @@ open ports straight to Caddy (no Funnel) - see
 ┌──────────────────── CADDY (single edge) ────────────────────┐
 │  • entry point into the Docker stack (:80, or :443 when it  │
 │    terminates TLS itself for the open-ports case)           │
-│  • routes by URL *path*:                                    │
+│  • routes by *path* and *Host*:                             │
 │       /standalone-signaling/*  → nextcloud-signaling:8081   │
-│       everything else         → proxy-nginx:80          │
+│       nextcloud.example.com    → nextcloud-nginx:80         │
+│       n8n.example.com          → n8n-n8n-1:5678 (direct)    │
 │  • gzip compression + static-asset caching headers          │
-└──────────────────────────┬──────────────────────────────────┘
-                           ▼
-┌──────────────────── NGINX (proxy-nginx) ───────────────┐
-│  • serves Nextcloud static files from the shared webroot   │
-│  • routes PHP → nextcloud-app:9000 (PHP-FPM)               │
-│  • load-balances across many nextcloud-app replicas        │
-│  • splits by *hostname* (server_name):                     │
-│       nextcloud.example.com → Nextcloud FPM                │
-│       n8n.example.com       → n8n_email_summarizer:5678    │
-└───────────┬───────────────────────────┬────────────────────┘
-            ▼                           ▼
-   nextcloud-app:9000 (PHP-FPM)   n8n_email_summarizer:5678
-   (Nextcloud)                   (n8n built-in web server)
+└──────────────────────┬──────────────┬──────────────────────┘
+                       ▼              ▼
+┌──────────────────────────────┐   ┌──────────────────────────┐
+│ NGINX (nextcloud-nginx)      │   │ n8n (built-in Node server)│
+│  serves static + PHP         │   │  no nginx in front        │
+│  └─ nextcloud-app:9000 (FPM) │   └──────────────────────────┘
+└──────────────────────────────┘
 ```
 
 The request keeps its **`Host` header** the whole way; the layer that decides
@@ -71,12 +66,12 @@ The request keeps its **`Host` header** the whole way; the layer that decides
 
 - The **single reverse-proxy entry** into the stack, listening on **:80**.
 - Routes by **URL path**: `/standalone-signaling/*` → the Talk signaling server;
-  everything else → `proxy-nginx`.
+  everything else → `nextcloud-nginx`.
 - Adds **gzip** and **static caching**.
 - Currently a flat `:80` site (does not split by hostname). The hostname split
   lives in nginx (below).
 
-### nginx (`proxy-nginx`)
+### nginx (`nextcloud-nginx`)
 
 - The **workhorse for the web tier**.
 - Serves **static files** directly from the shared Nextcloud webroot (fast, no
@@ -171,7 +166,7 @@ nextcloud.example.com {
         reverse_proxy nextcloud-signaling:8081
     }
     handle {
-        reverse_proxy proxy-nginx:80 { ... }
+        reverse_proxy nextcloud-nginx:80 { ... }
     }
 }
 
@@ -196,61 +191,64 @@ Tailscale Funnel vs Cloudflare Tunnel).
 
 ---
 
-## The router: one shared nginx for both apps
+## The router: nginx serves Nextcloud only - n8n is separate
 
-The recommended layout (Option A) is a **single shared nginx** that fronts both
-Nextcloud and n8n, routing by `Host` header. n8n needs **no nginx of its own** -
-its image ships a built-in web server; nginx just reverse-proxies it.
+**`nextcloud-nginx` serves Nextcloud ONLY.** n8n does **not** route through it.
+Reason: `nextcloud-nginx` exists to serve Nextcloud's static files and proxy its
+PHP-FPM tier - it is Nextcloud-specific. n8n ships its **own built-in web server**
+(Node/Express) on `:5678`, so it needs no nginx in front of it. Mixing n8n into
+`nextcloud-nginx` would add pointless coupling and force n8n through Nextcloud's
+nginx tuning (`server_name` split, upload size) - no benefit.
 
-### 1. `config/nginx.conf` - add a second `server` block for n8n
+So each app keeps a dedicated path:
 
-Add beside the existing `server { server_name _; ... }` (the closed default):
+```
+                 ┌──────────── Caddy (single edge) ────────────┐
+                 │  /standalone-signaling → nextcloud-signaling │
+ Host: nextcloud │  everything else       → nextcloud-nginx:80  │  (Nextcloud)
+ Host: n8n.example│  n8n.example.com       → n8n-n8n-1:5678      │  (n8n,
+                 └──────────────────────────────────────────────┘    direct)
+                               │
+                     nextcloud-nginx  serves webroot + PHP → nextcloud-app
+                     n8n-n8n-1        built-in web server (no nginx)
+```
 
-```nginx
-# n8n on its own hostname - keep n8n at its OWN root (subpath hosting is broken)
-server {
-    listen 80;
-    server_name n8n.example.com;                # your real n8n subdomain
+### 1. Caddy - route n8n directly, not through nginx
 
-    client_max_body_size 20m;                   # smaller than Nextcloud's 2G uploads
+In `Caddyfile`, add a host-routed block that proxies n8n straight to its container
+(do **not** send it to `nextcloud-nginx`). Enable when the n8n hostname resolves:
 
-    location / {
-        proxy_pass         http://n8n_email_summarizer:5678;
-        proxy_http_version 1.1;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host  $host;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        # WebSocket support (n8n editor push):
-        proxy_set_header Upgrade           $http_upgrade;
-        proxy_set_header Connection        "upgrade";
-        proxy_read_timeout 3600s;
+```caddyfile
+n8n.example.com {
+    encode gzip
+    reverse_proxy n8n-n8n-1:5678 {
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-For {remote_host}
+        header_up Origin {scheme}://{host}
     }
 }
 ```
 
-nginx then chooses by `server_name`: `nextcloud.example.com` falls through to the
-default Nextcloud block, `n8n.example.com` goes to n8n.
+The default `:80` site keeps routing Nextcloud traffic to `nextcloud-nginx:80`.
+If you use one `:80` site, match n8n by `Host` (see `{@n8n} host {$N8N_DOMAIN}`
+in the Caddyfile) and `reverse_proxy n8n-n8n-1:5678`.
 
-### 2. `compose.n8n.yaml` - proxied mode
+### 2. `config/nginx.conf` - unchanged (Nextcloud only)
 
-- **Comment out** the `ports: "127.0.0.1:5678:5678"` line so n8n is reachable
-  only on `nt_n8n_network` (by nginx), not published on the host.
-- Set the public-URL vars from `.env` so n8n emits correct links:
-  `N8N_HOST=n8n.example.com`, `N8N_PROTOCOL=https`, `N8N_PORT=5678`.
-- n8n already joins `nt_n8n_network`, so `nginx` reaches it as
-  `n8n_email_summarizer:5678`. No additional nginx container is added to the
-  n8n stack.
+Leave nginx as-is: one `server` block for Nextcloud, proxying PHP to
+`nextcloud-app:9000`. **Do not** add an n8n `server` block. n8n never traverses
+this container.
 
-### 3. `Caddyfile` / `compose.yaml` - no change
+### 3. `compose.n8n.yaml`
 
-Caddy already forwards **every** hostname on `:80` to `proxy-nginx:80`
-(and the Talk signaling path separately). nginx then performs the hostname
-split. Single edge: `Funnel → Caddy → nginx → {Nextcloud | n8n}`.
+- Default loopback `ports: "127.0.0.1:5678:5678"` gives local `localhost:5678`.
+- For public exposure, comment the loopback `ports` so n8n is reachable by Caddy
+  on `nt_n8n_network` only, and set `N8N_HOST` / `N8N_PROTOCOL` / `N8N_PORT` so
+  n8n emits the public URL. Caddy reaches it as `n8n-n8n-1:5678` (no nginx
+  involved).
 
 ### 4. `.env`
-
-Add the n8n hostname and exposure vars:
 
 ```bash
 N8N_DOMAIN=n8n.example.com
@@ -259,22 +257,19 @@ N8N_PROTOCOL=https
 N8N_PORT=5678
 ```
 
-> `N8N_DOMAIN` is what Caddy would use if routing in Caddy instead (Option B,
-> below). When routing in nginx, nginx's `server_name` uses the same value.
+`N8N_DOMAIN` is what Caddy uses to match the n8n hostname.
 
----
+### Summary of where the split happens
 
-## Choosing where to split by hostname
-
-Two valid placements; pick one so you do not maintain both:
-
-| Option | Split by hostname in | When to use |
+| Component | What it routes | Backend |
 | --- | --- | --- |
-| **A (recommended)** | **nginx** (`config/nginx.conf` `server_name`) | One shared nginx fronts both apps; single config surface, fewest edges |
-| **B** | **Caddy** (`Caddyfile` routed block) | You prefer to keep nginx Nextcloud-only and add n8n routing at the edge |
+| `nextcloud-nginx` | Nextcloud static + PHP | `nextcloud-app:9000` |
+| `caddy` | `n8n.example.com` (by hostname) | `n8n-n8n-1:5678` (direct) |
 
-Both need the same DNS record + n8n proxied mode. **Prefer A** for fewer moving
-parts and because nginx already owns Nextcloud host routing.
+**Why not route n8n through nginx:** nginx is the Nextcloud app's reverse proxy;
+n8n runs on its own Node server and only needs a simple host-header forward, done
+at the edge by Caddy. Routing n8n through `nextcloud-nginx` would couple the two
+apps to one proxy for no gain.
 
 > n8n **must** be served at its own root (a real hostname), not a subpath like
 > `/n8n/` - subpath hosting is broken in current n8n

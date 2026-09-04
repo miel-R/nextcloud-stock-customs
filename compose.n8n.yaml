@@ -26,11 +26,11 @@ name: n8n_stack
 # Open the setup wizard (loopback by default - not reached by the Funnel):
 #     http://localhost:5678
 #
-# Public exposure (optional): rroute n8n through Caddy on the shared
+# Public exposure (optional): route n8n through Caddy on the shared
 # nt_n8n_network at its OWN hostname (n8n subpath hosting is broken). Set
 # N8N_HOST/N8N_PROTOCOL in .env and proxied N8N_DOMAIN in the Caddyfile; Caddy
-# reaches this container as n8n-n8n-1:5678. See N8N.md ("Self-hosting both on
-# one Funnel domain").
+# reaches this container as n8n-n8n-1:5678 directly (NOT through nextcloud-nginx,
+# which serves Nextcloud only). See N8N.md.
 # ============================================================================
 
 services:
@@ -45,10 +45,10 @@ services:
     # Loopback only by default - NOT exposed to the internet / Funnel. Reach it on
     # this host at http://localhost:5678, or over the tailnet via this host's
     # tailnet IP.
-    # The shared nginx also reaches this container over nt_n8n_network as
-    # n8n_email_summarizer:5678 (that is how the nginx n8n server_name block
-    # proxies to it for n8n.example.com). The loopback port is for local testing
-    # only; it is not reachable by the Funnel/browser.
+    # n8n does NOT route through nextcloud-nginx - that nginx serves Nextcloud
+    # only. n8n has its own built-in web server and is reached DIRECTLY: via
+    # Caddy (Edge) on nt_n8n_network, or via the loopback port here for local
+    # testing (not reachable by the Funnel/browser).
     ports:
       - "127.0.0.1:5678:5678"
     environment:
