@@ -38,7 +38,8 @@ in its **own Compose project (`n8n_stack`, `compose.n8n.yaml`)** but uses the
 - **n8n is its own Compose project** (`n8n_stack`). It joins the shared external
   `nt_n8n_network` to reach `postgres-db`. Start/stop/upgrade it
   independently; `compose.db.yaml down` never stops n8n and vice versa.
-- By default n8n binds **`127.0.0.1:5678`** (loopback only) — internal / tailnet
+- By default n8n binds **`127.0.0.1:5678`** (loopback only, configurable via
+  `N8N_BIND` in `.env`) — internal / tailnet
   only, NOT the public Funnel hostname. (Options to share the Funnel domain are
   documented in "Self-hosting both on one Funnel domain" below.)
 
@@ -60,7 +61,9 @@ domain. Three realistic options, from simplest to most work:
 
 - Nextcloud is the only thing served at `https://<NC_DOMAIN>/` through the
   Funnel (Caddy → `proxy-nginx`).
-- n8n binds loopback (`127.0.0.1:5678`). Reach the wizard from a Tailnet client:
+- n8n binds loopback (`127.0.0.1:5678`, configurable via `N8N_BIND` in `.env` —
+  set `N8N_BIND=127.0.0.1:5679` if port 5678 is taken on the host, e.g. by VS
+  Code forwarding). Reach the wizard from a Tailnet client:
   `http://<this-host-tailnet-IP>:5678`, or with
   `ssh -L 5678:localhost:5678 <user>@<tailnet-ip>` then open localhost.
 - Pros: safest (n8n editor/creds never public), no proxy complexity. This is the
@@ -92,7 +95,7 @@ The plumbing is already in the repo; enable it like this:
 services:
   n8n:
     # ports:                        # <-- comment this out for proxied access
-    #   - "127.0.0.1:5678:5678"
+    #   - "${N8N_BIND:-127.0.0.1:5678}:5678"
     environment:
       - N8N_HOST=${N8N_HOST:-}      # e.g. n8n.example.com
       - N8N_PROTOCOL=${N8N_PROTOCOL:-https}
@@ -336,7 +339,7 @@ services:
     container_name: n8n_email_summarizer
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5678:5678"
+      - "${N8N_BIND:-127.0.0.1:5678}:5678"
     environment:
       - GENERIC_TIMEZONE=Asia/Manila
       - NODE_ENV=production
@@ -362,7 +365,9 @@ networks:
 
 Key points baked in:
 
-- **`127.0.0.1:5678:5678`** — loopback only. Not reached by the Funnel. (For
+- **`${N8N_BIND:-127.0.0.1:5678}:5678`** — loopback only. Not reached by the
+  Funnel. Defaults to `127.0.0.1:5678`; set `N8N_BIND=127.0.0.1:5679` in `.env`
+  if the host already has a process on 5678 (e.g. VS Code port forwarding). (For
   public exposure, remove this and use the Caddy→ `n8n-n8n-1:5678` approach in
   "Self-hosting both on one Funnel domain".)
 - **`DB_POSTGRESDB_HOST=postgres-db`** — the same container Nextcloud uses, on

@@ -610,8 +610,9 @@ docker compose -f compose.n8n.yaml logs -f n8n
 ```
 
 Open the n8n setup wizard at **`http://localhost:5678`** (loopback only by
-default — see [N8N.md](N8N.md) "Public exposure" to serve it on its own
-hostname via Caddy).
+default — set `N8N_BIND=127.0.0.1:5679` in `.env` if port 5678 is already taken
+on the host, e.g. by VS Code port forwarding. See [N8N.md](N8N.md) "Public
+exposure" to serve it on its own hostname via Caddy).
 
 ### d. Troubleshooting n8n on Linux hosts
 

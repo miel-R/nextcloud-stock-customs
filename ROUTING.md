@@ -242,7 +242,8 @@ this container.
 
 ### 3. `compose.n8n.yaml`
 
-- Default loopback `ports: "127.0.0.1:5678:5678"` gives local `localhost:5678`.
+- Default loopback `${N8N_BIND:-127.0.0.1:5678}:5678` gives local
+  `localhost:5678` (set `N8N_BIND=127.0.0.1:5679` if 5678 is taken on the host).
 - For public exposure, comment the loopback `ports` so n8n is reachable by Caddy
   on `nt_n8n_network` only, and set `N8N_HOST` / `N8N_PROTOCOL` / `N8N_PORT` so
   n8n emits the public URL. Caddy reaches it as `n8n-n8n-1:5678` (no nginx

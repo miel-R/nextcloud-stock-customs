@@ -43,14 +43,15 @@ services:
     container_name: n8n_email_summarizer
     restart: unless-stopped
     # Loopback only by default - NOT exposed to the internet / Funnel. Reach it on
-    # this host at http://localhost:5678, or over the tailnet via this host's
+    # this host at http://localhost:5678 (or http://localhost:5679 when
+    # N8N_BIND=127.0.0.1:5679 in .env), or over the tailnet via this host's
     # tailnet IP.
     # n8n does NOT route through proxy-nginx - that nginx serves Nextcloud
     # only. n8n has its own built-in web server and is reached DIRECTLY: via
     # Caddy (Edge) on nt_n8n_network, or via the loopback port here for local
     # testing (not reachable by the Funnel/browser).
     ports:
-      - "127.0.0.1:5678:5678"
+      - "${N8N_BIND:-127.0.0.1:5678}:5678"
     environment:
       - GENERIC_TIMEZONE=Asia/Manila
       - NODE_ENV=production
