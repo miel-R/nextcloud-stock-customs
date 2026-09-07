@@ -252,6 +252,13 @@ The browser can now reach the host at `https://<host>.ts.net` while Caddy is on
 `:80`. You can also use **Tailscale Serve** for a tailnet-internal-only name
 (`tailscale serve --bg http://127.0.0.1:80`) if you do not want a public site.
 
+> **Gotcha:** the Funnel always targets `http://127.0.0.1:80` on this host. If an
+> SSH client is forwarding **port 80** (e.g. VS Code Remote-SSH auto-forward from
+> another server), that forward shadows local Caddy on `127.0.0.1:80` and the
+> Funnel serves the *remote* machine instead. Result: `https://<host>.ts.net`
+> shows or redirects to the other server. Stop/report the port-80 forward (or
+> drop the SSH session) before testing the funnel - see troubleshooting.
+
 **A.3 Set `.env` to the HTTPS public URL** (see step 5):
 
 ```bash
@@ -759,6 +766,7 @@ behaviour is defined.
 | Talk no audio / no signaling | ... step 11 registers the HPB and TURN, and port 3478 is reachable | Verify `talk:signaling:list` / `talk:turn:list`; ensure 3478 UDP/TCP reachable; host RAM adequate (step 11, [SCALING.md](SCALING.md)) |
 | Talk admin shows **"High-performance backend URL … Error: Cannot connect to server"** | ... step 11.2/11.3 registers the HPB against the **current** `NC_DOMAIN`, which must be reachable | Stale signaling entry from an **old domain** (`talk:signaling:list` shows the retired host), or the domain has a **trailing slash** in `.env` (`NC_DOMAIN=…ts.net/` breaks the `wss://…//standalone-signaling` URL). Delete the old entry (`talk:signaling:delete "wss://<old>/standalone-signaling"`), re-add with the current domain + real secret from `.env`, and set `overwritehost`/`overwrite.cli.url` to the clean domain (no slash). Note: a plain `GET /standalone-signaling/` returns **404** — the endpoint only answers the WebSocket upgrade handshake, so that 404 is normal and not a fault |
 | Site not reachable on `https://<host>.ts.net` | ... step 6 runs Funnel and step 5 sets the exact `.ts.net` name as `NC_DOMAIN` + last trusted domain | Funnel not running, or wrong hostname in `.env`/browser. `tailscale status` for the name, `tailscale funnel --bg http://127.0.0.1:80`, fix `NC_DOMAIN`/`NEXTCLOUD_TRUSTED_DOMAINS` (no slash), recreate the app (step 5, 6) |
+| `https://<host>.ts.net` **redirects to a different server / shows the wrong Nextcloud** (e.g. your other box), or the login form is blocked with a CSP `form-action 'self'` error | ... the Funnel proxies to `http://127.0.0.1:80`, which must be the local Caddy | A **port-forward from an SSH session captures `127.0.0.1:80`** (e.g. VS Code Remote-SSH auto-forward of port 80 from another server), so the Funnel lands on the *forwarded* host instead of local Caddy. Windows resolves `127.0.0.1:80` to the SSH forward even though Docker also binds `:80`. Fix: stop/report the port-80 forward in VS Code (`Ports` panel) or close the SSH session, then hard refresh (`Ctrl+Shift+R`). Check who owns the port: `netstat -ano \| findstr :80` and match the PID to the process name (`tasklist \| findstr <pid>`) |
 | `tailscale` not found | ... step 6 installs Tailscale | `curl -fsSL https://tailscale.com/install.sh \| sh`, then `sudo tailscale up` (step 6) |
 | Host OOM-kills containers despite limits | ... the sizing profile matches host RAM, and auxiliary services carry `oom_score_adj: 500` so the app/Talk tier dies last | Add swap (`fallocate -l 8G /swapfile` on Ubuntu) or raise RAM to the profile's target (step 5, [SCALING.md](SCALING.md)) |
 | Uploads stuck at 512 MB | ... `UPLOAD_MAX_SIZE`, `php-custom.ini`, and nginx `client_max_body_size` are kept in sync (step 5) | Align `upload_max_filesize`/`post_max_size` with `UPLOAD_MAX_SIZE` (both default `2G`) and nginx `client_max_body_size`, recreate the app + nginx (step 5, 7) |
