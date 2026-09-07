@@ -23,11 +23,11 @@ Goes through the same container as the app, so no extra client needed (`docker e
 The `nextcloud_www` volume must be copied **while Nextcloud is in maintenance mode** so the DB and files stay in sync:
 
 ```bash
-docker exec -u www-data nextcloud-app php occ maintenance:mode --on
+docker compose exec -u www-data nextcloud-app php occ maintenance:mode --on
 # archive the volume (example: bind a host dir, or docker run a helper container)
 docker run --rm -v nextcloud_www:/data:ro -v /backup:/backup alpine \
   tar -czf /backup/nextcloud-www-$(date +%F).tar.gz -C /data .
-docker exec -u www-data nextcloud-app php occ maintenance:mode --off
+docker compose exec -u www-data nextcloud-app php occ maintenance:mode --off
 ```
 
 If 400 users make a full maintenance window unacceptable:
@@ -54,10 +54,10 @@ mkdir -p "$BACKUP_DIR"
 docker exec postgres-db pg_dump -U nextcloud -d nextcloud -Fc \
   > "$BACKUP_DIR/postgres-db-$STAMP.dump"
 
-docker exec -u www-data nextcloud-app php occ maintenance:mode --on
+docker compose exec -u www-data nextcloud-app php occ maintenance:mode --on
 docker run --rm -v nextcloud_www:/data:ro -v "$BACKUP_DIR":/backup alpine \
   tar -czf /backup/nextcloud-www-$STAMP.tar.gz -C /data .
-docker exec -u www-data nextcloud-app php occ maintenance:mode --off
+docker compose exec -u www-data nextcloud-app php occ maintenance:mode --off
 
 # retention: keep 7 daily dumps
 find "$BACKUP_DIR" -name 'postgres-db-*.dump' -mtime +7 -delete
@@ -71,7 +71,7 @@ Test this on a staging host at least once before going live.
 ```bash
 # 1. stop the web tier
 docker compose up -d --scale nextcloud-app=0
-docker exec -u www-data nextcloud-app php occ maintenance:mode --on   # if still running
+docker compose exec -u www-data nextcloud-app php occ maintenance:mode --on   # if still running
 
 # 2. database
 docker exec -u www-data postgres-db \
@@ -86,8 +86,8 @@ docker run --rm -v nextcloud_www:/data -v "$(pwd)":/backup alpine \
 # 4. start the database project if it is not running, then bring the app back
 docker compose -f compose.db.yaml up -d
 docker compose up -d
-docker exec -u www-data nextcloud-app php occ maintenance:mode --off
-docker exec -u www-data nextcloud-app php occ files:scan --all
+docker compose exec -u www-data nextcloud-app php occ maintenance:mode --off
+docker compose exec -u www-data nextcloud-app php occ files:scan --all
 ```
 
 ## Notes

@@ -77,7 +77,7 @@ with a bloated pool.
 
 1. `docker compose up -d --scale nextcloud-app=1`
 2. `docker compose pull && docker compose up -d --remove-orphans`
-3. `docker exec -u www-data nextcloud-app php occ upgrade`
+3. `docker compose exec -u www-data nextcloud-app php occ upgrade`
 4. `docker compose up -d --scale nextcloud-app=N`
 
 Every app replica runs the image entrypoint, which serializes `occ upgrade`/install behind a lock file on the shared volume, but it is still safer to bring the web tier to a single replica during an upgrade (maintenance mode is handled by `occ`).
@@ -127,9 +127,9 @@ Apply with:
 cp .env.example .env               # then fill in secrets AND sizes
 docker compose -f compose.db.yaml up -d   # DB + Redis first
 docker compose up -d --remove-orphans
-docker exec -u www-data nextcloud-app php occ status
-docker exec -u www-data nextcloud-app php occ talk:signaling:list
-docker exec -u www-data nextcloud-app php occ spreed:turn:list
+docker compose exec -u www-data nextcloud-app php occ status
+docker compose exec -u www-data nextcloud-app php occ talk:signaling:list
+docker compose exec -u www-data nextcloud-app php occ spreed:turn:list
 ```
 
 Watch `docker stats` and `free -h`; check for OOM kills with `dmesg | grep -i oom`.

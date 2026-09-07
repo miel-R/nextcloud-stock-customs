@@ -101,7 +101,7 @@ When you outgrow the single host or want HA + zero-maintenance patching:
    ```
 5. Put Nextcloud in maintenance mode:
    ```bash
-   docker exec -u www-data nextcloud-app php occ maintenance:mode --on
+   docker compose exec -u www-data nextcloud-app php occ maintenance:mode --on
    ```
 6. Update `.env` (`POSTGRES_HOST` to the managed host, and the password), then
    recreate the app tier so it picks up the new settings:

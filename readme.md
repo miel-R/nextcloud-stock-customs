@@ -150,12 +150,12 @@ See [BACKUP.md](BACKUP.md). Minimum viable setup on the host (daily cron):
 
 ```bash
 # app: enable the app
-docker exec -u www-data nextcloud-app php occ app:enable spreed
+docker compose exec -u www-data nextcloud-app php occ app:enable spreed
 
 # app: tell Nextcloud where the signaling (HPB) + TURN servers live (NC 34+ uses
 # the talk: namespace; the old spreed: commands were renamed)
-docker exec -u www-data nextcloud-app php occ talk:signaling:add "wss://<NC_DOMAIN>/standalone-signaling" <SIGNALING_SECRET> --verify
-docker exec -u www-data nextcloud-app php occ talk:turn:add turn <NC_DOMAIN> udp,tcp --secret=<TURN_SECRET>
+docker compose exec -u www-data nextcloud-app php occ talk:signaling:add "wss://<NC_DOMAIN>/standalone-signaling" <SIGNALING_SECRET> --verify
+docker compose exec -u www-data nextcloud-app php occ talk:turn:add turn <NC_DOMAIN> udp,tcp --secret=<TURN_SECRET>
 ```
 
 Notes:
@@ -169,15 +169,15 @@ Notes:
 
 ```bash
 # Put Nextcloud into maintenance mode
-docker exec -u www-data nextcloud-app php occ maintenance:mode --on
+docker compose exec -u www-data nextcloud-app php occ maintenance:mode --on
 
 # Pull new images and recreate (scale app back to 1 first if you scaled out)
 docker compose pull
 docker compose up -d --remove-orphans
 
 # Finish the upgrade (the app entrypoint runs `occ upgrade` automatically, but be explicit)
-docker exec -u www-data nextcloud-app php occ upgrade
-docker exec -u www-data nextcloud-app php occ maintenance:mode --off
+docker compose exec -u www-data nextcloud-app php occ upgrade
+docker compose exec -u www-data nextcloud-app php occ maintenance:mode --off
 ```
 
 ## Monitoring

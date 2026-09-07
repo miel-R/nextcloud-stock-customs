@@ -324,10 +324,10 @@ MIME type, security headers, `.well-known`/OCS routing, PHP memory limit, OPcach
 
 ```bash
 # maintenance window: heavy daily background jobs at 01:00, off-peak
-docker exec -u www-data nextcloud-app php occ config:system:set maintenance_window_start --value=1
+docker compose exec -u www-data nextcloud-app php occ config:system:set maintenance_window_start --value=1
 
 # apply pending mimetype migrations (only needed occasionally, on upgrades)
-docker exec -u www-data nextcloud-app php occ maintenance:repair --include-expensive
+docker compose exec -u www-data nextcloud-app php occ maintenance:repair --include-expensive
 ```
 
 > The **High-performance backend** (Talk) warning is resolved separately by
@@ -370,7 +370,7 @@ at ~2-3 participants. This step completes the wiring.
 - Port **3478** (UDP **and** TCP) is reachable from clients for TURN.
 - The Talk app (`spreed`) is enabled:
   ```bash
-  docker exec -u www-data nextcloud-app php occ app:enable spreed
+  docker compose exec -u www-data nextcloud-app php occ app:enable spreed
   ```
 
 ### 11.2 Register the signaling (HPB) server
@@ -413,7 +413,7 @@ secret and the domain. The angle brackets are **never typed**; they only mark
 "put your value here":
 
 ```bash
-docker exec -u www-data nextcloud-app php occ talk:signaling:add \
+docker compose exec -u www-data nextcloud-app php occ talk:signaling:add \
   "wss://<NC_DOMAIN>/standalone-signaling" <SIGNALING_SECRET> --verify
 ```
 
@@ -422,7 +422,7 @@ docker exec -u www-data nextcloud-app php occ talk:signaling:add \
 domain and **your** secret from step 2, and run:
 
 ```bash
-docker exec -u www-data nextcloud-app php occ talk:signaling:add \
+docker compose exec -u www-data nextcloud-app php occ talk:signaling:add \
   "wss://mis-server.tail204a2d.ts.net/standalone-signaling" \
   "X9wVE4b8/teDicCr1BR2e6WFFrv+hU+KxGxpFxBBYT8=" \
   --verify
@@ -440,7 +440,19 @@ docker exec -u www-data nextcloud-app php occ talk:signaling:add \
 **Step 4 - check it registered:**
 
 ```bash
-docker exec -u www-data nextcloud-app php occ talk:signaling:list
+docker compose exec -u www-data nextcloud-app php occ talk:signaling:list
+```
+
+**Removing/re-registering (e.g. after changing `NC_DOMAIN`):**
+
+There is **no** `talk:signaling:delete_all`; use `talk:signaling:delete <old-url>`
+to drop a specific entry before adding the new one:
+
+```bash
+docker compose exec -u www-data nextcloud-app php occ talk:signaling:delete \
+  "wss://<OLD_DOMAIN>/standalone-signaling"
+docker compose exec -u www-data nextcloud-app php occ talk:signaling:add \
+  "wss://<NC_DOMAIN>/standalone-signaling" <SIGNALING_SECRET> --verify
 ```
 
 ### 11.3 Register TURN
@@ -450,7 +462,7 @@ docker exec -u www-data nextcloud-app php occ talk:signaling:list
 
 ```bash
 # schemes: `turn` (or `turn,turns`); protocols: `udp,tcp`; --secret = TURN_SECRET
-docker exec -u www-data nextcloud-app php occ talk:turn:add \
+docker compose exec -u www-data nextcloud-app php occ talk:turn:add \
   turn # # #  # # --secret=# # #    # <-- template; fill in below
 ```
 
@@ -458,7 +470,7 @@ Same idea as 11.2 - copy the filled-in example and swap in your domain and TURN
 secret:
 
 ```bash
-docker exec -u www-data nextcloud-app php occ talk:turn:add \
+docker compose exec -u www-data nextcloud-app php occ talk:turn:add \
   turn mis-server.tail204a2d.ts.net udp,tcp \
   --secret=X9wVE4b8/teDicCr1BR2e6WFFrv+hU+KxGxpFxBBYT8=
 ```
@@ -471,8 +483,12 @@ docker exec -u www-data nextcloud-app php occ talk:turn:add \
 Verify with:
 
 ```bash
-docker exec -u www-data nextcloud-app php occ talk:turn:list
+docker compose exec -u www-data nextcloud-app php occ talk:turn:list
 ```
+
+There is **no** `talk:turn:delete_all`; `talk:turn:delete` drops all configured
+TURN servers at once, so re-run the `talk:turn:add` command after it (e.g. after
+changing `NC_DOMAIN`).
 
 ### 11.4 Verify in Nextcloud
 
@@ -741,6 +757,7 @@ behaviour is defined.
 | App container restarts / OOM | ... sizing is chosen so children fit host RAM (SCALING.md) | Lower `APP_MEM_LIMIT` in `.env` (FPM derives `pm.max_children`; children x ~150 MB must stay under it), or add host RAM (step 5, [SCALING.md](SCALING.md)) |
 | `nextcloud-turn` never starts / machine lags on `up` | ... TURN relay is off by default; the 16k UDP range is only in the optional override | The override hangs Docker Desktop and is slow on Linux - use it only on native Linux when you need relay: `docker compose -f compose.yaml -f compose.turn.yaml up -d` (step 11) |
 | Talk no audio / no signaling | ... step 11 registers the HPB and TURN, and port 3478 is reachable | Verify `talk:signaling:list` / `talk:turn:list`; ensure 3478 UDP/TCP reachable; host RAM adequate (step 11, [SCALING.md](SCALING.md)) |
+| Talk admin shows **"High-performance backend URL … Error: Cannot connect to server"** | ... step 11.2/11.3 registers the HPB against the **current** `NC_DOMAIN`, which must be reachable | Stale signaling entry from an **old domain** (`talk:signaling:list` shows the retired host), or the domain has a **trailing slash** in `.env` (`NC_DOMAIN=…ts.net/` breaks the `wss://…//standalone-signaling` URL). Delete the old entry (`talk:signaling:delete "wss://<old>/standalone-signaling"`), re-add with the current domain + real secret from `.env`, and set `overwritehost`/`overwrite.cli.url` to the clean domain (no slash). Note: a plain `GET /standalone-signaling/` returns **404** — the endpoint only answers the WebSocket upgrade handshake, so that 404 is normal and not a fault |
 | Site not reachable on `https://<host>.ts.net` | ... step 6 runs Funnel and step 5 sets the exact `.ts.net` name as `NC_DOMAIN` + last trusted domain | Funnel not running, or wrong hostname in `.env`/browser. `tailscale status` for the name, `tailscale funnel --bg http://127.0.0.1:80`, fix `NC_DOMAIN`/`NEXTCLOUD_TRUSTED_DOMAINS` (no slash), recreate the app (step 5, 6) |
 | `tailscale` not found | ... step 6 installs Tailscale | `curl -fsSL https://tailscale.com/install.sh \| sh`, then `sudo tailscale up` (step 6) |
 | Host OOM-kills containers despite limits | ... the sizing profile matches host RAM, and auxiliary services carry `oom_score_adj: 500` so the app/Talk tier dies last | Add swap (`fallocate -l 8G /swapfile` on Ubuntu) or raise RAM to the profile's target (step 5, [SCALING.md](SCALING.md)) |
