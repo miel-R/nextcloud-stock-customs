@@ -16,7 +16,36 @@
     admin off
 }
 
-:80 {
+# Internal HTTPS listener so the Talk signaling server can reach the Nextcloud
+# backend BY CONTAINER NAME (see compose.yaml `BACKEND_BACKEND1_URLS`). Needed
+# because the public URL (Tailscale Funnel on :443) does not hairpin back into
+# a container on the same host, so the signaling backend check would time out.
+# The cert is self-signed (tls internal) - the signaling service must set
+# SKIP_VERIFY=true to accept it. This listener is container-internal only when
+# SIGNALING_BACKEND_PORT is NOT published to the host (default: no host port).
+https://nextcloud-caddy:{$SIGNALING_BACKEND_PORT:8444} {
+    tls internal
+    handle {
+        reverse_proxy proxy-nginx:80 {
+            # Rewrite the Host header to the public trusted domain - Nextcloud's
+            # trusted_domains check rejects the raw container name (Host:
+            # nextcloud-caddy:8444 -> 400). This mirrors what the browser sends
+            # (Host: <NC_DOMAIN>), so the signaling backend check succeeds.
+            header_up Host {$NC_DOMAIN}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto https
+            transport http {
+                read_buffer 0
+                response_header_timeout 1h
+            }
+        }
+    }
+}
+
+# Public HTTP site (Funnel terminates TLS on :443 and forwards to here)
+# Using http:// prefix disables automatic HTTPS redirect for this domain
+http://{$NC_DOMAIN} {
     # Compression
     encode gzip
 
@@ -59,6 +88,35 @@
     handle {
         reverse_proxy proxy-nginx:80 {
             # Forward timeouts for long-running Nextcloud operations
+            transport http {
+                read_buffer 0
+                response_header_timeout 1h
+            }
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# INTERNAL HTTPS listener on :443 for the Talk app back-channel
+# ---------------------------------------------------------------------------
+# The Talk PHP app always POSTs its signaling push to the PUBLIC domain
+# (https://<NC_DOMAIN>/standalone-signaling/api/v1/room/...). On this host the
+# public Funnel URL does not hairpin back into containers, so compose.yaml pins
+# <NC_DOMAIN> to this Caddy container with `extra_hosts` (172.18.0.250). That
+# makes the app's request land here on :443 - NOT the published :80, which stays
+# reserved for the Funnel. We terminate TLS internally with a self-signed cert
+# (`tls internal`) and route /standalone-signaling to the signaling container.
+# The app must therefore skip cert verification: register the signaling server
+# with  occ spreed:signaling:add <wss://...> <secret> --verify  (see TALK-HPB.md).
+https://{$NC_DOMAIN} {
+    tls internal
+    # The signaling server's API path, proxied like on the public site
+    handle_path /standalone-signaling/* {
+        reverse_proxy nextcloud-signaling:8081
+    }
+    # Everything else -> Nginx
+    handle {
+        reverse_proxy proxy-nginx:80 {
             transport http {
                 read_buffer 0
                 response_header_timeout 1h

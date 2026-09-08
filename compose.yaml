@@ -96,6 +96,16 @@ services:
       start_period: 60s
     networks:
       - nt_n8n_network
+    extra_hosts:
+      # The Talk app POSTs to the signaling server back-channel
+      # (https://<NC_DOMAIN>/standalone-signaling/api/v1/...) using the PUBLIC
+      # domain. On Docker Desktop / NAT hosts that URL hairpins back into the
+      # container; on plain Linux+Tailscale Funnel it does NOT (no hairpin), so
+      # we pin the public domain to Caddy's internal IP - Caddy then routes
+      # /standalone-signaling to the signaling container over the docker bridge.
+      # (Caddy runs as a sibling container on the same network; `nextcloud-caddy`
+      # is its Compose alias.)
+      - "${NC_DOMAIN}:${CADDY_INTERNAL_IP:-172.18.0.250}"
     deploy:
       replicas: ${APP_REPLICAS:-1}   # honored by Swarm; for Compose use --scale
       resources:
@@ -118,6 +128,10 @@ services:
       - nextcloud:/var/www/html
     networks:
       - nt_n8n_network
+    extra_hosts:
+      # Same back-channel routing as nextcloud-app: signal notifications are
+      # delivered by the cron job too, and they also use the PUBLIC domain.
+      - "${NC_DOMAIN}:${CADDY_INTERNAL_IP:-172.18.0.250}"
     oom_score_adj: 500   # background job - never OOM-kill the app/Talk before it
     deploy:
       resources:
@@ -150,7 +164,15 @@ services:
       # Shared secrets used to authenticate with the Nextcloud backend
       INTERNAL_SHARED_SECRET_KEY: ${INTERNAL_SECRET:?err}
       BACKENDS: backend1
-      BACKEND_BACKEND1_URLS: https://${NC_DOMAIN:?err}
+      # Where the signaling server reaches the Nextcloud BACKEND (the OCS API it
+      # authenticates against). MUST include BOTH:
+      #   - the public URL (for Nextcloud's Spreed-Signaling-Backend header matching)
+      #   - the internal URL (for the signaling server to call Nextcloud's OCS API)
+      # Format: comma-separated URLs, e.g. "https://<NC_DOMAIN>,https://nextcloud-caddy:8444"
+      # On a single host where the public URL doesn't hairpin back into containers
+      # (Tailscale Funnel), the internal URL points at Caddy's INTERNAL TLS listener
+      # (https://nextcloud-caddy:8444) and SKIP_VERIFY=true.
+      BACKEND_BACKEND1_URLS: ${SIGNALING_BACKEND_URL:-https://${NC_DOMAIN:?err},https://nextcloud-caddy:8444}
       BACKEND_BACKEND1_SHARED_SECRET: ${SIGNALING_SECRET:?err}
       # Only set to "true" for internal-only HTTP/TLS-less setups (see readme.md)
       SKIP_VERIFY: ${SKIP_VERIFY:-false}
@@ -219,6 +241,14 @@ services:
       # Hostname routed to n8n (see Caddyfile n8n block + N8N.md). Empty by
       # default -> n8n stays internal; set when proxying n8n on its own hostname.
       - N8N_DOMAIN=${N8N_DOMAIN:-}
+      # Public domain, used by the internal TLS listener to rewrite the Host
+      # header to a Nextcloud-trusted value (see Caddyfile).
+      - NC_DOMAIN=${NC_DOMAIN:?err}
+      # Port for the INTERNAL-only HTTPS listener (Caddyfile `tls internal`).
+      # The signaling container reaches Nextcloud through it by container name
+      # (same bridge network - no host port needed); the public Funnel URL does
+      # not hairpin into containers on this host.
+      - SIGNALING_BACKEND_PORT=${SIGNALING_BACKEND_PORT:-8444}
     volumes:
       - caddy_data:/data
       - caddy_config:/config
@@ -226,7 +256,8 @@ services:
     depends_on:
       - nextcloud-app
     networks:
-      - nt_n8n_network
+      nt_n8n_network:
+        ipv4_address: ${CADDY_INTERNAL_IP:-172.18.0.250}
     oom_score_adj: 500
     deploy:
       resources:
