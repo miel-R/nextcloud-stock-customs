@@ -180,6 +180,11 @@ services:
       - nextcloud-app
     networks:
       - nt_n8n_network
+    extra_hosts:
+      # The signaling server needs to reach Nextcloud's OCS API for capabilities.
+      # On Linux+Tailscale Funnel the public URL doesn't hairpin, so pin the
+      # public domain to Caddy's internal IP (same as nextcloud-app/cron).
+      - "${NC_DOMAIN}:${CADDY_INTERNAL_IP:-172.18.0.250}"
     oom_score_adj: 500
     deploy:
       resources:
