@@ -145,3 +145,95 @@ chmod +x /home/mis/recovery.sh
 | `invalid_token` in Talk | hello-v2-token-key not fetched | Restart signaling after DNS works |
 | `403 Forbidden` on signaling | Backend URL mismatch | Ensure SIGNALING_BACKEND_URL has BOTH public + internal URLs |
 | Nextcloud shows "trusted domain" error | NC_DOMAIN changed | Update .env trusted_domains, recreate app container |
+---
+
+## n8n Recovery After Internet Restart
+
+### n8n Not Accessible After Internet Restart
+
+**Symptoms**: n8n editor not loading, connection refused, or "n8n not working"
+
+**Root Causes**:
+1. Caddy n8n routing not enabled (N8N_DOMAIN not set in .env)
+2. Tailscale Funnel not restarted for n8n hostname
+3. n8n container not running or database connection failed
+4. N8N_BIND port conflict (port 5678/5679 already in use)
+
+**Recovery Steps**:
+
+#### 1. Verify n8n Container Running
+```bash
+docker compose -f /home/mis/docker/nextcloud-stock-customs/compose.n8n.yaml ps
+docker compose -f /home/mis/docker/nextcloud-stock-customs/compose.n8n.yaml logs n8n --tail 20
+```
+
+#### 2. Test Internal Access (bypass Caddy)
+```bash
+# n8n binds to N8N_BIND (default 127.0.0.1:5679)
+curl -fsS http://127.0.0.1:5679 | head -5
+```
+If this works but external doesn't → Caddy routing issue.
+
+#### 3. Check N8N_DOMAIN in .env (REQUIRED for Caddy routing)
+```bash
+grep N8N_DOMAIN /home/mis/docker/nextcloud-stock-customs/.env
+```
+**Must be set** for Caddy to route n8n traffic. Example:
+```
+N8N_DOMAIN=n8n.mis-server.tail204a2d.ts.net
+```
+
+#### 4. Restart Caddy After N8N_DOMAIN Change
+```bash
+cd /home/mis/docker/nextcloud-stock-customs && docker compose restart caddy
+```
+
+#### 5. Verify Funnel for n8n Hostname (if using separate subdomain)
+```bash
+# If N8N_DOMAIN is a different subdomain, need separate Funnel:
+tailscale funnel --bg --https=8443 http://127.0.0.1:5679
+```
+Or add to existing Funnel if same hostname:
+```bash
+tailscale funnel --bg http://127.0.0.1:80  # serves both Nextcloud + n8n
+```
+
+#### 6. Common Fix: N8N_BIND Port Conflict
+If port 5678/5679 is in use:
+```bash
+# Check what's using the port
+sudo ss -tlnp | grep :567
+
+# Change N8N_BIND in .env to free port
+N8N_BIND=127.0.0.1:5680
+
+# Restart n8n
+docker compose -f compose.n8n.yaml restart n8n
+```
+
+#### 7. Database Connection Issues
+```bash
+# Check n8n can reach Postgres
+docker compose -f compose.n8n.yaml exec n8n pg_isready -h postgres-db -p 5432
+
+# Check n8n database exists
+docker compose -f compose.db.yaml exec postgres-db psql -U nextcloud -d n8n -c "\dt"
+```
+
+---
+
+### Quick n8n Recovery Script
+```bash
+#!/bin/bash
+cd /home/mis/docker/nextcloud-stock-customs
+
+# 1. Restart Caddy (routing)
+docker compose restart caddy
+
+# 2. Restart n8n
+docker compose -f compose.n8n.yaml restart n8n
+
+# 3. Verify
+sleep 5
+curl -fsS http://127.0.0.1:5679 >/dev/null && echo "n8n OK" || echo "n8n FAILED"
+```
