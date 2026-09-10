@@ -43,6 +43,17 @@ https://nextcloud-caddy:{$SIGNALING_BACKEND_PORT:8444} {
     }
 }
 
+# Public HTTP site for n8n subdomain (Funnel terminates TLS on :443)
+# Using http:// prefix disables automatic HTTPS redirect for this domain
+http://{$N8N_DOMAIN} {
+    reverse_proxy n8n_email_summarizer:5678 {
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-For {remote_host}
+        header_up Origin {scheme}://{host}
+    }
+}
+
 # Public HTTP site (Funnel terminates TLS on :443 and forwards to here)
 # Using http:// prefix disables automatic HTTPS redirect for this domain
 http://{$NC_DOMAIN} {
@@ -63,58 +74,10 @@ http://{$NC_DOMAIN} {
         reverse_proxy nextcloud-signaling:8081
     }
 
-    # n8n on its own hostname (subpath hosting of n8n is broken - n8n-io/n8n#19635).
-    # Keep n8n at its OWN root, routed by Host header, so it shares the same
-    # Caddy/Funnel entry on :443 while Nextcloud stays on the main hostname.
-    # Enable only when you have a resolvable n8n hostname (see N8N.md). Set
-    # N8N_DOMAIN (e.g. n8n.example.com) and uncomment the lines below. Because
-    # this Caddy is HTTP-only (TLS via Tailscale Funnel), the hostname must be
-    # served by the same Funnel route; n8n-n8n-1 is the Compose container name
-    # for the n8n_stack project.
-    #
-    # if N8N_DOMAIN is set, route to n8n:
-    {@n8n} host {$N8N_DOMAIN}
-    handle @n8n {
-    reverse_proxy n8n-n8n-1:5678 {
-        header_up X-Forwarded-Proto https
-        header_up X-Forwarded-Host {host}
-        header_up X-Forwarded-For {remote_host}
-        header_up Origin {scheme}://{host}
-    }
-
     # Everything else -> Nginx (serves static, proxies PHP to FPM)
     handle {
         reverse_proxy proxy-nginx:80 {
             # Forward timeouts for long-running Nextcloud operations
-            transport http {
-                read_buffer 0
-                response_header_timeout 1h
-            }
-        }
-    }
-}
-
-# ---------------------------------------------------------------------------
-# INTERNAL HTTPS listener on :443 for the Talk app back-channel
-# ---------------------------------------------------------------------------
-# The Talk PHP app always POSTs its signaling push to the PUBLIC domain
-# (https://<NC_DOMAIN>/standalone-signaling/api/v1/room/...). On this host the
-# public Funnel URL does not hairpin back into containers, so compose.yaml pins
-# <NC_DOMAIN> to this Caddy container with `extra_hosts` (172.18.0.250). That
-# makes the app's request land here on :443 - NOT the published :80, which stays
-# reserved for the Funnel. We terminate TLS internally with a self-signed cert
-# (`tls internal`) and route /standalone-signaling to the signaling container.
-# The app must therefore skip cert verification: register the signaling server
-# with  occ spreed:signaling:add <wss://...> <secret> --verify  (see TALK-HPB.md).
-https://{$NC_DOMAIN} {
-    tls internal
-    # The signaling server's API path, proxied like on the public site
-    handle_path /standalone-signaling/* {
-        reverse_proxy nextcloud-signaling:8081
-    }
-    # Everything else -> Nginx
-    handle {
-        reverse_proxy proxy-nginx:80 {
             transport http {
                 read_buffer 0
                 response_header_timeout 1h
