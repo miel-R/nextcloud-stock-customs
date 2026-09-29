@@ -35,6 +35,7 @@ name: n8n_stack
 
 services:
   n8n:
+    mem_limit: 1g
     # Compose profile so the service is DEFINED but only runs when the "n8n"
     # profile is active. Enable with N8N_INSTALL=true in .env, which maps to
     # COMPOSE_PROFILES=n8n - no need to comment/uncomment this file.

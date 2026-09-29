@@ -43,6 +43,90 @@ https://nextcloud-caddy:{$SIGNALING_BACKEND_PORT:8444} {
     }
 }
 
+# Internal HTTPS listener on :443 for the PUBLIC domain.
+#
+# The app/cron containers call the signaling server's back-channel at
+# https://<NC_DOMAIN>/standalone-signaling/api/v1/... That URL is DERIVED from
+# the registered wss:// server URL and hardcoded to https:// on port 443
+# (spreed/lib/Signaling/BackendNotifier.php:
+#    $url = 'https://' . substr($url, 6);
+#  and the same conversion in Signaling/Manager::checkServerCompatibility).
+#
+# The public Tailscale Funnel endpoint is NOT reachable from inside the
+# containers - there is no hairpin and no route to 100.64.0.0/10, so cURL from a
+# container just times out (curl error 28). That is why compose.yaml pins
+# <NC_DOMAIN> to CADDY_INTERNAL_IP through extra_hosts.
+#
+# This block is the missing half of that pin: it makes the pinned IP ANSWER on
+# 443. Without it every back-channel request and every `occ`-side setup check
+# is "dial tcp <CADDY_INTERNAL_IP>:443: connect: connection refused", which the
+# admin UI surfaces as "Error: Cannot connect to server"
+# (spreed/lib/SetupCheck/HighPerformanceBackend.php).
+#
+# tls internal = self-signed. Browsers never see this cert (Funnel terminates
+# TLS with the public certificate before reaching Caddy :80); only the
+# containers do. Because the cert is self-signed, the signaling server MUST be
+# registered WITHOUT --verify so Nextcloud passes `verify => false` to cURL -
+# see TALK-HPB.md section 8, step 3.
+#
+# Container-internal only: port 443 is deliberately NOT published to the host.
+https://{$NC_DOMAIN} {
+    tls internal
+    handle_path /standalone-signaling* {
+        reverse_proxy nextcloud-signaling:8081
+    }
+    handle {
+        reverse_proxy proxy-nginx:80 {
+            # Mirror what the browser sends so Nextcloud's trusted_domains
+            # check passes (the raw container Host would be a 400).
+            header_up Host {$NC_DOMAIN}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto https
+            transport http {
+                read_buffer 0
+                response_header_timeout 1h
+            }
+        }
+    }
+}
+
+# Container-internal plain-HTTP site for server-to-server clients on the docker
+# network that must call the Nextcloud OCS API. Today that is the Ami Talk bot
+# in /home/mis/docker/ami-nextcloud-talk, which POSTs signed replies to
+# <TALK_SERVER_URL>/ocs/v2.php/apps/spreed/api/v1/bot/<room>/message.
+#
+# Why plain HTTP and not the https://nextcloud-caddy:8444 route above? The bot
+# authenticates every call with an HMAC signature (X-Nextcloud-Talk-Bot-Signature)
+# instead of a bearer token, so each request is already cryptographically
+# authenticated, and :8444 is served with a self-signed `tls internal` cert that
+# Node/axios rejects without extra CA trust configuration. HTTP keeps the bot
+# free of any trust-store dependency.
+#
+# Why not the public https://{$NC_DOMAIN}? Tailscale Funnel does not hairpin, so
+# a container that resolves <NC_DOMAIN> to 100.119.34.25 times out on :443 -
+# the same reason the app containers pin <NC_DOMAIN> via extra_hosts.
+#
+# Host is rewritten to the public trusted domain so Nextcloud's trusted_domains
+# check passes, and X-Forwarded-Proto is forced to https so generated URLs
+# (downloads, WebDAV links) still use the public scheme.
+#
+# Container-internal only: this site matches only the literal Host
+# `nextcloud-caddy` and is not reachable from outside the docker network.
+# See TALK-BOTS.md section 5.
+http://nextcloud-caddy {
+    reverse_proxy proxy-nginx:80 {
+        header_up Host {$NC_DOMAIN}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto https
+        transport http {
+            read_buffer 0
+            response_header_timeout 1h
+        }
+    }
+}
+
 # Public HTTP site for n8n subdomain (Funnel terminates TLS on :443)
 # Using http:// prefix disables automatic HTTPS redirect for this domain
 http://{$N8N_DOMAIN} {
@@ -69,8 +153,14 @@ http://{$NC_DOMAIN} {
     header @static_assets Cache-Control "public, max-age=2592000, immutable"
     header @static_assets X-Content-Type-Options "nosniff"
 
-    # Talk signaling server
-    handle_path /standalone-signaling/* {
+    # Talk signaling server.
+    # NOTE the trailing `*` and NOT `/*`: the browser opens its WebSocket
+    # against the registered URL verbatim, i.e. the BARE path
+    # `/standalone-signaling` with no trailing segment. A matcher of
+    # `/standalone-signaling/*` does NOT match that (it only matches
+    # `/standalone-signaling/` and deeper), so the upgrade fell through to
+    # `handle` and Nextcloud answered with its "Page not found" HTML.
+    handle_path /standalone-signaling* {
         reverse_proxy nextcloud-signaling:8081
     }
 
