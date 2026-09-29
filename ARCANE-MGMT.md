@@ -199,3 +199,37 @@ TestFlight beta: https://getarcane.app/docs/get-started/mobile — native iOS/iP
 - [TALK-HPB.md](TALK-HPB.md) — Talk HPB install & register
 - [TALK-HPB-RUNBOOK.md](TALK-HPB-RUNBOOK.md) — HPB operations & health check
 - [NETWORKING.md](NETWORKING.md) — request paths and DNS
+
+---
+
+## Default admin credentials (first startup)
+
+On first startup, Arcane auto-creates a default admin user. Check the container logs:
+
+`ash
+docker logs arcane | grep -A 2 'Default admin user created'
+`
+
+**Output:**
+`
+👑 Default admin user created!
+🔑 Password: arcane-admin
+⚠️  User will be prompted to change password on first login
+`
+
+**Login credentials:**
+- **Username:** rcane
+- **Password:** rcane-admin
+- **Email:** dmin@localhost
+
+You will be prompted to change the password on first login.
+
+To reset and regenerate a new default admin:
+
+`ash
+docker stop arcane && docker rm arcane && docker volume rm arcane-data
+docker volume create arcane-data
+# re-run the docker run command
+# check new password: docker logs arcane | grep 'Password:'
+`
+
