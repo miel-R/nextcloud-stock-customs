@@ -301,3 +301,24 @@ Rancher as their platform.
 - [TALK-HPB.md](TALK-HPB.md) - Talk HPB install & register
 - [TALK-HPB-RUNBOOK.md](TALK-HPB-RUNBOOK.md) - HPB operations & health check
 - [NETWORKING.md](NETWORKING.md) - request paths and DNS
+
+---
+
+## Appendix: First-login bootstrap password
+
+If you see:
+
+> Invalid username or password. ... a random one has been generated for you. To find it, run:
+> kubectl get secret --namespace cattle-system bootstrap-secret -o go-template='{{.data.bootstrapPassword|base64decode}}'
+
+Run this on the host:
+
+`ash
+docker exec rancher kubectl get secret --namespace cattle-system bootstrap-secret \
+  -o go-template='{{.data.bootstrapPassword|base64decode}}'
+`
+
+**Username:** dmin  
+**Password:** (output of the command above)
+
+After first login you'll be prompted to set your own password (12+ chars).
