@@ -322,3 +322,50 @@ docker exec rancher kubectl get secret --namespace cattle-system bootstrap-secre
 **Password:** (output of the command above)
 
 After first login you'll be prompted to set your own password (12+ chars).
+
+---
+
+## Appendix: Import this host as a Docker node (see all Compose containers)
+
+The embedded local cluster is a **k3s Kubernetes** cluster — it only shows K8s Pods.
+Your Compose containers (
+extcloud-app, 
+extcloud-caddy, mi-talk-bot, etc.)
+are **Docker containers**, not K8s Pods. To see them in Rancher:
+
+1. Open Rancher UI → **Cluster Management → Create → Import Existing → Docker**
+2. Copy the **Docker command** it generates (looks like below)
+3. Run it **on this host** (the one running 
+extcloud-stack, mi-nextcloud-talk)
+
+`ash
+# Example (token/checksum are unique each time — copy from UI, not here):
+docker run -d --privileged --restart=unless-stopped \
+  --net=host \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  rancher/rancher-agent:v2.15.2 \
+  --server https://192.1.5.34:9443 \
+  --token <TOKEN_FROM_UI> \
+  --ca-checksum <CHECKSUM_FROM_UI>
+`
+
+4. A new cluster appears (e.g., docker-host) → **Resources → Containers** shows
+   every container from all Compose projects on this host.
+
+### What you get
+| Rancher view | Shows |
+|--------------|-------|
+| **Resources → Containers** | All Docker containers with logs, exec, env, labels |
+| **Resources → Docker Volumes** | 
+extcloud_www, portainer_data, mi_talk_bot_data, etc. |
+| **Resources → Docker Networks** | 
+t_n8n_network, mi-nextcloud-talk_default, etc. |
+
+### Notes
+- The agent runs with --privileged --net=host -v /var/run/docker.sock:/var/run/docker.sock
+  → it has root-equivalent access to the Docker daemon.
+- You can still manage the stack via docker compose CLI; Rancher is a read-heavy
+  view + restart/exec/logs UI.
+- If you later migrate to K8s (Helm charts exist for Nextcloud/Talk), the same
+  Rancher manages both.
+
